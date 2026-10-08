@@ -1,0 +1,32 @@
+{
+  "name": "FigBlend",
+  "id": "figblend",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "src/ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": [
+      "http://localhost:8787",
+      "http://localhost:8788",
+      "http://localhost:8789",
+      "http://localhost:8790",
+      "http://localhost:8791",
+      "http://localhost:8792",
+      "http://localhost:8793",
+      "http://localhost:8794"
+    ],
+    "devAllowedDomains": [
+      "http://localhost:8787",
+      "http://localhost:8788",
+      "http://localhost:8789",
+      "http://localhost:8790",
+      "http://localhost:8791",
+      "http://localhost:8792",
+      "http://localhost:8793",
+      "http://localhost:8794"
+    ],
+    "reasoning": "Sends the export to the Blender addon listening on your own machine, so you do not have to import the file by hand. Loopback only - nothing ever leaves the computer."
+  }
+}

@@ -1,0 +1,496 @@
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font: 11px/1.45 Inter, -apple-system, sans-serif;
+    background: var(--figma-color-bg, #2c2c2c);
+    color: var(--figma-color-text, #e6e6e6);
+    margin: 0;
+    padding: 12px 12px 10px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Lucide glyphs, inlined -- the plugin sandbox blocks every external request */
+  .ic {
+    width: 13px; height: 13px; flex: none;
+    fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .ic-lg { width: 15px; height: 15px; }
+
+  header { display: flex; align-items: center; gap: 7px; margin-bottom: 11px; }
+  header .title { font-weight: 600; }
+
+  /* Live-link state, kept to a dot and one word */
+  .pill {
+    margin-left: auto; height: 20px; padding: 0 8px; gap: 5px;
+    border-radius: 10px; font-weight: 500;
+    background: var(--figma-color-bg-secondary, #383838);
+    color: var(--figma-color-text-secondary, #a0a0a0);
+  }
+  .dot {
+    width: 6px; height: 6px; border-radius: 50%; flex: none;
+    background: var(--figma-color-text-secondary, #a0a0a0);
+  }
+  .pill.live { color: var(--figma-color-text, #e6e6e6); }
+  .pill.live .dot { background: #14ae5c; }
+  /* Shown only when more than one Blender answers */
+  #linkPick {
+    width: auto; max-width: 128px; height: 16px; padding: 0 2px;
+    border: 0; background: transparent; color: inherit;
+    font: inherit; font-weight: 500; cursor: pointer;
+  }
+
+  .card {
+    border: 1px solid var(--figma-color-border, rgba(255,255,255,.12));
+    border-radius: 8px;
+  }
+  .line {
+    position: relative;              /* tooltips anchor to the row, not the icon */
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; min-height: 34px;
+  }
+  .line + .line { border-top: 1px solid var(--figma-color-border, rgba(255,255,255,.12)); }
+  .name { flex: 1; display: flex; align-items: center; gap: 7px; }
+
+  /* The two output modes are mutually exclusive, so they read as one choice */
+  .seg {
+    position: relative;
+    display: flex; gap: 3px; margin-top: 8px; padding: 3px;
+    border: 1px solid var(--figma-color-border, rgba(255,255,255,.12));
+    border-radius: 8px;
+  }
+  .seg button {
+    flex: 1; height: 28px; padding: 0 6px; border-radius: 5px;
+    background: transparent;
+    color: var(--figma-color-text-secondary, #a0a0a0);
+    font-weight: 500;
+  }
+  .seg button:hover { color: var(--figma-color-text, #e6e6e6); }
+  .seg button.on {
+    background: var(--figma-color-bg-brand, #0d99ff);
+    color: var(--figma-color-text-onbrand, #ffffff);
+    font-weight: 600;
+  }
+
+  input[type=number], select {
+    padding: 4px 6px; border: 1px solid transparent; border-radius: 5px;
+    background: transparent; color: var(--figma-color-text, #e6e6e6);
+    font: inherit; font-variant-numeric: tabular-nums;
+  }
+  input[type=number] { width: 62px; text-align: right; }
+  select { width: 80px; }
+  input[type=number]:hover, select:hover { border-color: var(--figma-color-border, rgba(255,255,255,.12)); }
+  input[type=number]:focus, select:focus {
+    outline: none;
+    border-color: var(--figma-color-border-selected, #0d99ff);
+    background: var(--figma-color-bg-secondary, #383838);
+  }
+  .unit { color: var(--figma-color-text-secondary, #a0a0a0); margin-left: -4px; }
+
+  /* Detail lives in tooltips so the panel stays scannable. They stretch to the
+     width of the row they belong to rather than hanging off the icon, so they
+     cannot run past the edge of the panel and get clipped. */
+  .info { display: flex; opacity: .4; cursor: help; }
+  .info:hover { opacity: .85; }
+  [data-tip]::after {
+    content: attr(data-tip);
+    position: absolute; left: 0; right: 0; z-index: 20;
+    top: calc(100% + 7px);
+    padding: 7px 9px;
+    background: var(--figma-color-bg-inverse, #1e1e1e);
+    color: var(--figma-color-text-oninverse, #fff);
+    border-radius: 6px; font-weight: 400; line-height: 1.4; text-align: left;
+    box-shadow: 0 4px 14px rgba(0,0,0,.3);
+    opacity: 0; visibility: hidden; transition: opacity .1s ease .25s;
+    pointer-events: none;
+  }
+  [data-tip].up::after { top: auto; bottom: calc(100% + 7px); }
+  [data-tip]:hover::after { opacity: 1; visibility: visible; }
+
+  footer { display: flex; align-items: center; gap: 6px; margin-top: 11px; }
+  button {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    height: 32px; padding: 0 12px; border: 0; border-radius: 6px;
+    font: inherit; font-weight: 600; cursor: pointer;
+  }
+  #export { flex: 1; background: var(--figma-color-bg-brand, #0d99ff); color: var(--figma-color-text-onbrand, #ffffff); }
+  #export:hover:not(:disabled) { filter: brightness(1.08); }
+  #cancel { background: transparent; color: var(--figma-color-text-secondary, #a0a0a0); }
+  #cancel:hover { color: var(--figma-color-text, #e6e6e6); }
+  button:disabled { opacity: .45; cursor: default; }
+
+  #status { margin-top: 8px; min-height: 26px; color: var(--figma-color-text-secondary, #a0a0a0); }
+  #status.error { color: var(--figma-color-text-danger, #ff9d9d); }
+  .hidden { display: none !important; }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <g id="i-box"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></g>
+  <g id="i-scan"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/></g>
+  <g id="i-image"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></g>
+  <g id="i-pen"><path d="m12 19 7-7 3 3-7 7-3-3z"/><path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="m2 2 7.586 7.586"/><circle cx="11" cy="11" r="2"/></g>
+  <g id="i-type"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/></g>
+  <g id="i-download"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></g>
+  <g id="i-info"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></g>
+</defs></svg>
+
+<header>
+  <svg class="ic ic-lg" viewBox="0 0 24 24"><use href="#i-box"/></svg>
+  <span class="title">FigBlend</span>
+  <button type="button" class="pill" id="link" title="Check for a running Blender">
+    <span class="dot"></span><span id="linkText">Offline</span><select id="linkPick" class="hidden"></select>
+  </button>
+</header>
+
+<div class="card">
+  <div class="line">
+    <span class="name"><svg class="ic" viewBox="0 0 24 24"><use href="#i-scan"/></svg> Scale</span>
+    <input id="pxPerMeter" type="number" value="1000" min="1" step="100" />
+    <span class="unit">px/m</span>
+    <span class="info" data-tip="Pixels per metre. At 1000, a 1440 px frame lands 1.44 m wide in Blender.">
+      <svg class="ic" viewBox="0 0 24 24"><use href="#i-info"/></svg></span>
+  </div>
+  <div class="line"> 
+    <span class="name"><svg class="ic" viewBox="0 0 24 24"><use href="#i-image"/></svg> Quality</span>
+    <select id="rasterScale">
+      <option value="1">1× draft</option>
+      <option value="2" selected>2×</option>
+      <option value="3">3×</option>
+      <option value="4">4× close-up</option>
+    </select>
+    <span class="info" id="qualityTip" data-tip="">
+      <svg class="ic" viewBox="0 0 24 24"><use href="#i-info"/></svg></span>
+  </div>
+</div>
+
+<div class="seg" id="modeSeg">
+  <button type="button" class="up on" data-mode="vector"
+          data-tip="Solid shapes rebuild as real curves — sharp at any distance, and extrudable. Strokes are outlined so borders survive. Text stays editable. Gradients and effects rasterize instead.">
+    <svg class="ic" viewBox="0 0 24 24"><use href="#i-pen"/></svg> Vector
+  </button>
+  <button type="button" class="up" data-mode="texvector"
+          data-tip="Curve geometry wearing a render of itself, lined up with the design. Keeps the sharp silhouette and the extrudable shape, while gradients, shadows and anything else the plain vector route loses survive in the texture.">
+    <svg class="ic" viewBox="0 0 24 24"><use href="#i-image"/></svg> Texturized
+  </button>
+  <button type="button" class="up" data-mode="image"
+          data-tip="Bakes every element to a textured plane, text included. Hierarchy is kept, so cards still move their contents — but nothing stays editable, and no fonts need installing.">
+    <svg class="ic" viewBox="0 0 24 24"><use href="#i-type"/></svg> Image
+  </button>
+</div>
+
+<footer>
+  <button id="cancel">Cancel</button>
+  <button id="export">
+    <svg class="ic" viewBox="0 0 24 24"><use href="#i-download"/></svg> Export
+  </button>
+</footer>
+
+<div id="status"></div>
+
+<script>
+  const statusEl = document.getElementById('status');
+  const exportBtn = document.getElementById('export');
+  const modeSeg = document.getElementById('modeSeg');
+  const qualityTip = document.getElementById('qualityTip');
+  const linkBtn = document.getElementById('link');
+  const linkText = document.getElementById('linkText');
+  const linkPick = document.getElementById('linkPick');
+
+  // The Blender addon serves this on loopback when Live Link is on. If it is
+  // not there we simply fall back to downloading the .zip, so the plugin works
+  // exactly as before with no Blender running.
+  // Hostnames must match manifest allowedDomains exactly. Figma rejects IP
+  // literals there, so this is the name -- Blender listens on both ::1 and
+  // 127.0.0.1 because localhost resolves to the IPv6 one first on Windows.
+  //
+  // Each Blender claims the next free port, so several run side by side. Every
+  // port has to be listed: Figma's allowedDomains wildcard covers subdomains,
+  // not ports.
+  const BRIDGE_PORTS = [8787, 8788, 8789, 8790, 8791, 8792, 8793, 8794];
+  const SCAN_TIMEOUT = 700;
+
+  let instances = [];  // every Blender that answered
+  let bridge = null;   // the one we send to
+
+  async function probe(port) {
+    const url = 'http://localhost:' + port;
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), SCAN_TIMEOUT);
+    try {
+      const res = await fetch(url + '/ping', { signal: stop.signal });
+      if (!res.ok) return null;
+      const info = await res.json();
+      if (info.app !== 'blender') return null;
+      info.url = url;
+      info.port = info.port || port;
+      return info;
+    } catch (err) {
+      return null; // closed port, timeout or blocked -- all the same here
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function pingBridge() {
+    linkText.textContent = 'Scanning…';
+    const found = (await Promise.all(BRIDGE_PORTS.map(probe))).filter(Boolean);
+    found.sort((a, b) => a.port - b.port);
+
+    // Stay on the same instance across rescans, so a rescan cannot silently
+    // retarget a different scene mid-session.
+    const previous = bridge && bridge.pid;
+    instances = found;
+    bridge = found.find((i) => i.pid === previous) || found[0] || null;
+    renderLink();
+  }
+
+  function label(info) {
+    const name = info.blend_name || 'unsaved';
+    return instances.length > 1 ? name + ' :' + info.port : name;
+  }
+
+  function renderLink() {
+    const live = !!bridge;
+    linkBtn.classList.toggle('live', live);
+    linkPick.classList.toggle('hidden', instances.length < 2);
+    linkText.classList.toggle('hidden', instances.length > 1);
+
+    if (instances.length > 1) {
+      linkPick.innerHTML = '';
+      for (const info of instances) {
+        const option = document.createElement('option');
+        option.value = String(info.pid);
+        option.textContent = label(info);
+        if (bridge && info.pid === bridge.pid) option.selected = true;
+        linkPick.appendChild(option);
+      }
+    } else {
+      linkText.textContent = live
+        ? (bridge.blend_saved ? (bridge.blend_name || 'Blender') : 'Unsaved')
+        : 'Offline';
+    }
+
+    linkBtn.title = !live
+      ? 'No Blender found on ports ' + BRIDGE_PORTS[0] + '-'
+        + BRIDGE_PORTS[BRIDGE_PORTS.length - 1]
+        + '. Turn on Live Link in the Figma UI sidebar, then click to rescan.'
+      : !bridge.blend_saved
+        ? 'Blender is listening but the .blend is unsaved, so there is nowhere to put ./figAssets. Save it, then rescan.'
+        : instances.length > 1
+          ? instances.length + ' Blenders found. Pick which one receives the export.'
+          : 'Connected to ' + bridge.blend_name + ' on port ' + bridge.port
+            + '. Assets go to ' + bridge.asset_dir;
+
+    exportBtn.lastChild.textContent = (live && bridge.blend_saved)
+      ? ' Send to Blender' : ' Export';
+  }
+
+  linkBtn.onclick = pingBridge;
+  linkPick.onchange = () => {
+    bridge = instances.find((i) => String(i.pid) === linkPick.value) || bridge;
+    renderLink();
+  };
+  // Clicking the dropdown must not also trigger a rescan on the pill.
+  linkPick.onclick = (event) => event.stopPropagation();
+
+  // One choice, not two switches: curves and baked planes are mutually
+  // exclusive, and raster quality means something different under each --
+  // "affects the icons" versus "is the resolution of everything, text included".
+  let mode = 'vector';
+
+  function setMode(next) {
+    mode = next;
+    for (const btn of modeSeg.querySelectorAll('button')) {
+      btn.classList.toggle('on', btn.dataset.mode === mode);
+    }
+    qualityTip.dataset.tip = mode === 'image'
+      ? 'Resolution of every element, text included. Raise it for close-up shots.'
+      : mode === 'texvector'
+        ? 'Resolution of the texture on every shape. Raise it for close-up shots.'
+        : 'Resolution of icons, images and effects. Text and vector shapes are unaffected.';
+  }
+
+  modeSeg.onclick = (event) => {
+    const btn = event.target.closest('button');
+    if (btn) setMode(btn.dataset.mode);
+  };
+  setMode('vector');
+  pingBridge();
+
+  function setStatus(text, isError) {
+    statusEl.textContent = text;
+    statusEl.className = isError ? 'error' : '';
+  }
+
+  exportBtn.onclick = () => {
+    exportBtn.disabled = true;
+    setStatus('Reading selection…');
+    parent.postMessage({ pluginMessage: {
+      type: 'export',
+      pxPerMeter: Number(document.getElementById('pxPerMeter').value) || 1000,
+      rasterScale: Number(document.getElementById('rasterScale').value) || 2,
+      mode,
+    }}, '*');
+  };
+
+  document.getElementById('cancel').onclick = () => {
+    parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*');
+  };
+
+  onmessage = (event) => {
+    const msg = event.data.pluginMessage;
+    if (!msg) return;
+
+    if (msg.type === 'progress') {
+      setStatus(msg.message);
+      return;
+    }
+    if (msg.type === 'error') {
+      exportBtn.disabled = false;
+      setStatus(msg.message, true);
+      return;
+    }
+    if (msg.type === 'bundle') {
+      setStatus('Packing bundle…');
+      const files = [{ path: 'bundle.json', bytes: strToBytes(msg.manifest) }].concat(msg.assets);
+      const zip = buildZip(files);
+
+      // Composed before delivering, because deliver() is async and would
+      // otherwise have its own message overwritten by this one.
+      let text = `${msg.stats.nodes} nodes, ${msg.stats.assets} assets.`;
+      if (msg.stats.strokesOutlined) {
+        text += ` Outlined ${msg.stats.strokesOutlined} stroke(s).`;
+      }
+      if (msg.stats.effectsDropped) {
+        text += ` Effects dropped on ${msg.stats.effectsDropped} shape(s) — relight in Blender.`;
+      }
+      if (msg.warnings.length) {
+        text += ` ${msg.warnings.length} warning(s) — see console.`;
+        console.warn(msg.warnings.join('\n'));
+      }
+
+      deliver(zip, msg.filename, text);
+      exportBtn.disabled = false;
+    }
+  };
+
+  // Straight into Blender when it is listening, otherwise the usual download.
+  // A failed send falls back rather than losing the export.
+  async function deliver(zip, filename, stats) {
+    if (bridge && bridge.blend_saved) {
+      try {
+        const res = await fetch(bridge.url + '/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/zip', 'X-Bundle-Name': filename },
+          body: zip,
+        });
+        const info = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setStatus('Sent to ' + (bridge.blend_name || 'Blender') + ' — ' + stats);
+          return;
+        }
+        setStatus((info.error || 'Blender refused the bundle.') + ' Downloaded instead.', true);
+      } catch (err) {
+        setStatus('Could not reach Blender — downloaded instead.', true);
+      }
+      pingBridge(); // the link may have dropped; refresh what we show
+      download(zip, filename);
+      return;
+    }
+    download(zip, filename);
+    setStatus(stats);
+  }
+
+  function download(bytes, filename) {
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function strToBytes(str) {
+    return new TextEncoder().encode(str);
+  }
+
+  // --- Minimal store-only ZIP writer -------------------------------------
+  // No compression: PNGs are already deflated and bundle.json is small, so the
+  // savings do not justify shipping a zip library into the plugin sandbox.
+
+  const CRC_TABLE = (() => {
+    const table = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+      table[i] = c >>> 0;
+    }
+    return table;
+  })();
+
+  function crc32(bytes) {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) {
+      crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ bytes[i]) & 0xFF];
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function u16(n) { return [n & 0xFF, (n >>> 8) & 0xFF]; }
+  function u32(n) { return [n & 0xFF, (n >>> 8) & 0xFF, (n >>> 16) & 0xFF, (n >>> 24) & 0xFF]; }
+
+  function buildZip(files) {
+    const now = new Date();
+    const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+    const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+
+    const chunks = [];
+    const central = [];
+    let offset = 0;
+
+    for (const file of files) {
+      const name = strToBytes(file.path);
+      const data = file.bytes instanceof Uint8Array ? file.bytes : new Uint8Array(file.bytes);
+      const crc = crc32(data);
+
+      // 0x0800 = filenames are UTF-8
+      const local = [].concat(
+        u32(0x04034b50), u16(20), u16(0x0800), u16(0),
+        u16(dosTime), u16(dosDate),
+        u32(crc), u32(data.length), u32(data.length),
+        u16(name.length), u16(0),
+      );
+      chunks.push(new Uint8Array(local), name, data);
+
+      central.push([].concat(
+        u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0),
+        u16(dosTime), u16(dosDate),
+        u32(crc), u32(data.length), u32(data.length),
+        u16(name.length), u16(0), u16(0), u16(0), u16(0),
+        u32(0), u32(offset),
+      ));
+      central.push(name);
+
+      offset += local.length + name.length + data.length;
+    }
+
+    const centralChunks = central.map((c) => (c instanceof Uint8Array ? c : new Uint8Array(c)));
+    const centralSize = centralChunks.reduce((sum, c) => sum + c.length, 0);
+
+    const eocd = new Uint8Array([].concat(
+      u32(0x06054b50), u16(0), u16(0),
+      u16(files.length), u16(files.length),
+      u32(centralSize), u32(offset), u16(0),
+    ));
+
+    return concat(chunks.concat(centralChunks, [eocd]));
+  }
+
+  function concat(arrays) {
+    const total = arrays.reduce((sum, a) => sum + a.length, 0);
+    const out = new Uint8Array(total);
+    let pos = 0;
+    for (const a of arrays) { out.set(a, pos); pos += a.length; }
+    return out;
+  }
+</script>
