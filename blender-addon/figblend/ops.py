@@ -5,7 +5,7 @@ import zipfile
 import bpy
 from bpy_extras.io_utils import ImportHelper
 
-from . import bridge, builder, fonts, materials, updater
+from . import bridge, builder, fonts, geo, materials, props, updater
 
 
 class FIGBLEND_OT_import(bpy.types.Operator, ImportHelper):
@@ -398,7 +398,10 @@ class FIGBLEND_OT_build_geometry(bpy.types.Operator):
 class FIGBLEND_OT_flatten_geometry(bpy.types.Operator):
     bl_idname = "figblend.flatten_geometry"
     bl_label = "Flatten"
-    bl_description = "Undo Build 3D Geometry on the selected objects"
+    bl_description = (
+        "Undo Build 3D Geometry on the selected objects. A Geo Mesh is removed "
+        "and the element it replaced comes back"
+    )
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -407,14 +410,100 @@ class FIGBLEND_OT_flatten_geometry(bpy.types.Operator):
 
     def execute(self, context):
         selected = set(context.selected_objects)
-        count = 0
-        for obj in context.selected_objects:
+        count = restored = 0
+        for obj in list(context.selected_objects):
+            if obj.get(geo.GEO_KEY):
+                geo.restore(obj)
+                restored += 1
+                continue
             if obj.get("figblend_part") and obj.parent in selected:
                 continue
             if obj.type in builder.CURVE_TYPES or obj.type == "MESH":
                 builder.clear_thickness(obj)
                 count += 1
-        self.report({"INFO"}, "Flattened %d object(s)" % count)
+        message = "Flattened %d object(s)" % count
+        if restored:
+            message += ", restored %d from Geo Mesh" % restored
+        self.report({"INFO"}, message)
+        return {"FINISHED"}
+
+
+class FIGBLEND_OT_make_geo(bpy.types.Operator):
+    bl_idname = "figblend.make_geo"
+    bl_label = "Geo Mesh"
+    bl_description = (
+        "Rebuild the selected elements as dense meshes from a geometry node "
+        "group, so Wave, Simple Deform and other deformers can animate them. "
+        "A button's own text and icon move onto it. Flat undoes it"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    height: bpy.props.FloatProperty(
+        name="Height",
+        description="Thickness of the rebuilt mesh. 0 uses the Build 3D depth, or a size-based default",
+        default=0.0, min=0.0, soft_max=0.1, precision=4, unit="LENGTH",
+    )
+    density: bpy.props.IntProperty(
+        name="Density",
+        description=(
+            "Segments across the shorter side. Raise it for smoother waves and "
+            "bends, lower it for lighter scenes"
+        ),
+        default=32, min=4, soft_max=128,
+    )
+    carry_content: bpy.props.BoolProperty(
+        name="Carry Text and Icon",
+        description=(
+            "When the element is button-shaped (one text, at most one icon), "
+            "rebuild them onto the mesh instead of leaving them as separate objects"
+        ),
+        default=True,
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.selected_objects)
+
+    def execute(self, context):
+        prefs = props.preferences()
+        name = prefs.geo_node_group if prefs else geo.DEFAULT_GROUP
+        library = prefs.geo_library if prefs else ""
+        try:
+            group = geo.node_group(name, library)
+        except ValueError as err:
+            self.report({"ERROR"}, str(err))
+            return {"CANCELLED"}
+
+        selected = set(context.selected_objects)
+        made, skipped = [], []
+        for obj in list(context.selected_objects):
+            # SVG parts belong to their root; texts and groups have no shape
+            # of their own to rebuild; a Geo Mesh is already one.
+            if (obj.get("figblend_part") or obj.get(geo.GEO_KEY)
+                    or obj.type not in {"CURVE", "MESH"}):
+                if not (obj.get("figblend_part") and obj.parent in selected):
+                    skipped.append(obj.name)
+                continue
+            try:
+                made.append(geo.make(obj, group, self.height, self.carry_content, self.density))
+            except ValueError as err:
+                skipped.append(obj.name)
+                self.report({"WARNING"}, str(err))
+
+        if not made:
+            self.report({"WARNING"}, "Select a shape or image plane to rebuild")
+            return {"CANCELLED"}
+
+        for obj in context.selected_objects:
+            obj.select_set(False)
+        for obj in made:
+            obj.select_set(True)
+        context.view_layer.objects.active = made[0]
+
+        message = "Rebuilt %d element(s) with '%s'" % (len(made), group.name)
+        if skipped:
+            message += ", skipped %d" % len(skipped)
+        self.report({"INFO"}, message)
         return {"FINISHED"}
 
 
@@ -548,6 +637,7 @@ classes = (
     FIGBLEND_OT_set_render_method,
     FIGBLEND_OT_build_geometry,
     FIGBLEND_OT_flatten_geometry,
+    FIGBLEND_OT_make_geo,
     FIGBLEND_OT_select_relight,
     FIGBLEND_OT_toggle_bridge,
     FIGBLEND_OT_repair_link,

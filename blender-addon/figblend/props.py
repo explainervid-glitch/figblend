@@ -52,6 +52,23 @@ class FigBlendPreferences(bpy.types.AddonPreferences):
         default=0.0005, min=0.00001, soft_max=0.02, precision=5, unit="LENGTH",
     )
 
+    geo_node_group: bpy.props.StringProperty(
+        name="Geo Node Group",
+        description=(
+            "Geometry node group used by Geo Mesh. Inputs are matched by name "
+            "(Height, Roundness, Text, Font, Icon Object, ...)"
+        ),
+        default="Button Custom",
+    )
+    geo_library: bpy.props.StringProperty(
+        name="Library",
+        description=(
+            "Optional .blend that holds the node group. Used when the open file "
+            "does not have it, so Geo Mesh works in any file"
+        ),
+        default="", subtype="FILE_PATH",
+    )
+
     check_updates: bpy.props.BoolProperty(
         name="Check for Updates",
         description=(
@@ -76,6 +93,11 @@ class FigBlendPreferences(bpy.types.AddonPreferences):
         row = box.row()
         row.enabled = self.live_build_geometry
         row.prop(self, "live_geometry_depth")
+
+        box = layout.box()
+        box.label(text="Geo Mesh", icon="GEOMETRY_NODES")
+        box.prop(self, "geo_node_group")
+        box.prop(self, "geo_library")
 
         from . import updater
         box = layout.box()

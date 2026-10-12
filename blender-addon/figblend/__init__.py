@@ -7,26 +7,31 @@ bl_info = {
     "name": "FigBlend",
     "description": "Import UI exported from Figma with editable text, hierarchy and shader controls",
     "author": "",
-    "version": (0, 2, 1),
+    "version": (0, 2, 2),
     "blender": (4, 2, 0),
     "location": "File > Import > FigBlend Bundle (.zip), and View3D > Sidebar > FigBlend",
     "category": "Import-Export",
 }
 
-# Guard on one of our own submodules, not on bpy: bpy is imported at module
-# top level, so "bpy" in locals() is already true on the very first load.
-if "fonts" in locals():
-    import importlib
-    importlib.reload(fonts)
-    importlib.reload(materials)
-    importlib.reload(builder)
-    importlib.reload(props)   # bridge reads addon preferences from here
-    importlib.reload(bridge)
-    importlib.reload(updater)
-    importlib.reload(ops)
-    importlib.reload(ui)
-else:
-    from . import fonts, materials, builder, props, bridge, updater, ops, ui
+# On a reload (Reload Scripts, re-enabling, or an extension update in a running
+# Blender) every submodule from the previous load is still cached in
+# sys.modules, and `from . import x` would hand back that stale copy without
+# running the new code. So each cached one is re-executed first, in dependency
+# order. Checked in sys.modules rather than in this module's namespace: when
+# Blender re-imports the package from scratch the namespace is empty but the
+# cache is not. A module that is new in this version is not cached yet and is
+# simply imported below.
+import importlib
+import sys
+
+_SUBMODULES = ("fonts", "materials", "builder", "geo", "props", "bridge",
+               "updater", "ops", "ui")
+for _name in _SUBMODULES:
+    _cached = sys.modules.get("%s.%s" % (__name__, _name))
+    if _cached is not None:
+        importlib.reload(_cached)
+
+from . import fonts, materials, builder, geo, props, bridge, updater, ops, ui
 
 
 def menu_func_import(self, context):

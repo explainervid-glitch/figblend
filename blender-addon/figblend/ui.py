@@ -121,6 +121,10 @@ class FIGBLEND_PT_selection(bpy.types.Panel):
         row.operator(ops.FIGBLEND_OT_flatten_geometry.bl_idname,
                      text="Flat", icon="MESH_PLANE")
 
+        row = _labeled_row(layout, "Deformable")
+        row.operator(ops.FIGBLEND_OT_make_geo.bl_idname,
+                     text="Geo Mesh", icon="GEOMETRY_NODES")
+
         row = _labeled_row(layout, "Shadows")
         row.operator(ops.FIGBLEND_OT_set_shadow.bl_idname,
                      text="Off").enabled = False
