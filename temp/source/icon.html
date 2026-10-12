@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  html, body { margin: 0; width: 512px; height: 512px; overflow: hidden; }
+  body { background: radial-gradient(circle at 30% 20%, #26262f, #121216 75%); }
+  svg { position: absolute; inset: 0; width: 512px; height: 512px; }
+</style>
+<script src="iso.js"></script>
+</head><body>
+<svg id="s" xmlns="http://www.w3.org/2000/svg"></svg>
+<script>
+  // Drawn large and fitted to the canvas with padding; the 128 px version is
+  // the same page rendered at a quarter of the device scale.
+  const svg = document.getElementById('s');
+  svg.innerHTML = `<g id="m">${mark(128)}</g>`;
+  const b = document.getElementById('m').getBBox();
+  const pad = Math.max(b.width, b.height) * 0.26;
+  const side = Math.max(b.width, b.height) + pad * 2;
+  const cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+  svg.setAttribute('viewBox', `${cx - side / 2} ${cy - side / 2} ${side} ${side}`);
+</script>
+</body></html>

@@ -1,0 +1,59 @@
+/* Faithful copies of the real FigBlend UIs, drawn at 2x. Labels and layout
+   match the shipped plugin (src/ui.html) and Blender sidebar (ui.py). */
+
+/* --- Figma plugin window -------------------------------------------------- */
+.fig {
+  width: 600px; border-radius: 20px; overflow: hidden;
+  background: #2c2c2c; color: #e6e6e6;
+  box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.08);
+  font-size: 22px;
+}
+.fig .bar { height: 64px; display: flex; align-items: center; padding: 0 24px;
+            background: #1e1e1e; color: #b3b3b3; font-weight: 600; gap: 14px; }
+.fig .bar .x { margin-left: auto; opacity: .6; }
+.fig .body { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.fig .hd { display: flex; align-items: center; gap: 12px; }
+.fig .hd .t { font-weight: 600; flex: 1; }
+.fig .pill { height: 40px; padding: 0 16px; border-radius: 20px; display: flex;
+             align-items: center; gap: 10px; background: #383838; font-weight: 500; }
+.fig .pill .dot { width: 12px; height: 12px; border-radius: 50%; background: #14ae5c; }
+.fig .seg { display: flex; gap: 4px; padding: 4px; border: 2px solid rgba(255,255,255,.12);
+            border-radius: 14px; }
+.fig .seg div { flex: 1; height: 52px; border-radius: 10px; display: flex; align-items: center;
+                justify-content: center; gap: 10px; color: #a0a0a0; font-weight: 500; }
+.fig .seg .on { background: #0d99ff; color: #fff; font-weight: 600; }
+.fig .opts { display: flex; gap: 12px; }
+.fig .field { flex: 1; height: 56px; border: 2px solid rgba(255,255,255,.12); border-radius: 12px;
+              display: flex; align-items: center; gap: 10px; padding: 0 16px; color: #a0a0a0; }
+.fig .field b { color: #e6e6e6; font-weight: 400; margin-left: auto; }
+.fig .btn { height: 64px; border-radius: 12px; background: #0d99ff; color: #fff; font-weight: 600;
+            display: flex; align-items: center; justify-content: center; gap: 12px; }
+.fig .status { color: #a0a0a0; }
+.fig svg.ic { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2;
+              stroke-linecap: round; stroke-linejoin: round; }
+
+/* --- Blender sidebar ------------------------------------------------------ */
+.bl {
+  width: 600px; border-radius: 14px; overflow: hidden;
+  background: #303030; color: #e6e6e6; font-size: 22px;
+  box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.08);
+}
+.bl .ph { height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 18px;
+          background: #3d3d3d; font-weight: 500; }
+.bl .ph .r { margin-left: auto; opacity: .7; }
+.bl .pb { padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+.bl .row { display: flex; gap: 2px; }
+.bl .b { flex: 1; height: 48px; border-radius: 8px; background: #545454; display: flex;
+         align-items: center; justify-content: center; gap: 10px; }
+.bl .b.on { background: #4772b3; }
+.bl .b.big { height: 62px; }
+.bl .lbl { display: flex; align-items: center; gap: 12px; color: #d0d0d0; height: 40px; }
+.bl .subp { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 18px;
+           background: #353535; border-top: 2px solid #2a2a2a; }
+.bl .subp .r { margin-left: auto; opacity: .7; }
+.bl .lr { display: flex; align-items: center; }
+.bl .lr > span { width: 36%; color: #c8c8c8; }
+.bl .lr .row { flex: 1; }
+.bl .slider { flex: 1; height: 48px; border-radius: 8px; background: #545454; display: flex;
+              align-items: center; justify-content: center; }
+.bl .ok { color: #7ccf7c; }

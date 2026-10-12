@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="common.css">
+<style>
+  .steps { position: absolute; left: 120px; right: 120px; top: 400px;
+           display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; }
+  .step { border-top: 3px solid var(--text); padding-top: 32px; }
+  .step .n { font-size: 96px; font-weight: 750; line-height: 1; letter-spacing: -.03em; color: var(--orange); }
+  .step h3 { font-size: 40px; font-weight: 700; margin-top: 28px; letter-spacing: -.01em; }
+  .step p { font-size: 27px; line-height: 1.45; color: var(--muted); margin-top: 14px; }
+  .foot { position: absolute; left: 120px; right: 120px; bottom: 96px; font-size: 26px; color: var(--muted);
+          border-top: 1px solid var(--line); padding-top: 28px; }
+  .foot b { color: var(--text); font-weight: 600; }
+</style>
+</head><body>
+<div class="frame">
+  <div class="eyebrow">Get started</div>
+  <h1>Set up once, then it's one click.</h1>
+</div>
+<div class="steps">
+  <div class="step"><div class="n">1</div><h3>Add FigBlend to Blender</h3>
+    <p>Free add-on for Blender 4.2 or newer. Add its repository and Blender keeps it up to date.</p></div>
+  <div class="step"><div class="n">2</div><h3>Start Live Link</h3>
+    <p>Save your .blend, open the FigBlend tab in the sidebar and press Start Live Link.</p></div>
+  <div class="step"><div class="n">3</div><h3>Send from Figma</h3>
+    <p>Select a frame, pick a mode, press Send to Blender. It arrives in seconds.</p></div>
+</div>
+<div class="foot"><b>Your design never leaves your computer.</b> Live Link talks only to Blender on localhost.<br><span style="white-space:nowrap">Add-on and setup: github.com/explainervid-glitch/figblend</span></div>
+</body></html>

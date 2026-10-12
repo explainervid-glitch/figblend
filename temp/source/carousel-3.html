@@ -1,0 +1,32 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="common.css">
+<script src="iso.js"></script>
+<style>
+  .left { position: absolute; left: 120px; top: 0; bottom: 0; width: 760px;
+          display: flex; flex-direction: column; justify-content: center; }
+  .notes { margin-top: 56px; display: flex; flex-direction: column; gap: 28px; }
+  .notes div { font-size: 28px; line-height: 1.4; color: var(--muted); padding-left: 28px;
+               border-left: 3px solid var(--line); }
+  .notes b { color: var(--text); font-weight: 600; }
+  #art { position: absolute; right: 80px; top: 50%; width: 960px; height: 820px; transform: translateY(-50%); }
+</style>
+</head><body>
+<div class="left">
+  <div class="eyebrow">Build 3D</div>
+  <h1>Real thickness,<br>stacked the way<br>it overlaps.</h1>
+  <div class="notes">
+    <div><b>Grows backwards</b> from each layer's face, so the front stays where Figma put it.</div>
+    <div><b>Rests on what's beneath it,</b> not on the layer count — no floating gaps.</div>
+    <div><b>Thickness and seam gap</b> adjustable, on import or afterwards.</div>
+  </div>
+</div>
+<svg id="art"></svg>
+<script>
+  const svg = document.getElementById('art');
+  svg.innerHTML = `<g id="g">${stackedCard({ t: 22, gap: 3 })}</g>`;
+  const b = svg.querySelector('#g').getBBox();
+  const pad = Math.max(b.width, b.height) * 0.04;
+  svg.setAttribute('viewBox', `${b.x - pad} ${b.y - pad} ${b.width + pad * 2} ${b.height + pad * 2}`);
+</script>
+</body></html>

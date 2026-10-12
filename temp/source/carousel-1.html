@@ -1,0 +1,57 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="common.css">
+<link rel="stylesheet" href="mocks.css">
+<style>
+  .row-art { position: absolute; left: 120px; right: 120px; top: 380px; bottom: 80px;
+             display: flex; align-items: center; justify-content: space-between; }
+  .wire { flex: 1; position: relative; height: 4px; margin: 0 40px;
+          background: repeating-linear-gradient(90deg, #2bc275 0 18px, transparent 18px 30px); }
+  .wire::after { content: ""; position: absolute; right: -6px; top: 50%; transform: translateY(-50%);
+                 border: 16px solid transparent; border-left-color: #2bc275; border-right: 0; }
+  .wire span { position: absolute; left: 50%; top: -58px; transform: translateX(-50%);
+               white-space: nowrap; font-size: 26px; font-weight: 600; color: var(--text); }
+  .wire em { position: absolute; left: 50%; top: 30px; transform: translateX(-50%);
+             white-space: nowrap; font-size: 22px; font-style: normal; color: var(--muted); }
+</style>
+</head><body>
+<div class="frame">
+  <div class="eyebrow">Live Link</div>
+  <h1>One click from Figma<br>to Blender.</h1>
+</div>
+
+<div class="row-art">
+  <div class="fig">
+    <div class="bar">FigBlend <span class="x">✕</span></div>
+    <div class="body">
+      <div class="hd">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+        <span class="t">FigBlend</span>
+        <span class="pill"><span class="dot"></span>Dashboard.blend</span>
+      </div>
+      <div class="seg"><div class="on">Vector</div><div>Texturized</div><div>Image</div></div>
+      <div class="opts">
+        <div class="field"><svg class="ic" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/></svg><b>1000</b> px/m</div>
+        <div class="field"><svg class="ic" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><b>2×</b></div>
+      </div>
+      <div class="btn">Send to Blender</div>
+    </div>
+  </div>
+
+  <div class="wire"><span>Over localhost</span><em>No export, no file to import</em></div>
+
+  <div class="bl">
+    <div class="ph">▾ FigBlend <span class="r">⤓</span></div>
+    <div class="pb">
+      <div class="row"><div class="b big on">Stop Live Link</div></div>
+      <div class="lbl"><span class="ok">✓</span> Imported 24 objects from dashboard.zip</div>
+      <div class="row"><div class="b">Auto-Start</div><div class="b">Build 3D</div></div>
+    </div>
+    <div class="subp">▾ Selection <span class="r">1</span></div>
+    <div class="pb">
+      <div class="lr"><span>Geometry</span><div class="row"><div class="b">3D</div><div class="b">Flat</div></div></div>
+      <div class="lr"><span>Shadows</span><div class="row"><div class="b">Off</div><div class="b">On</div></div></div>
+    </div>
+  </div>
+</div>
+</body></html>

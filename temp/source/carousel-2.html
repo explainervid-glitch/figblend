@@ -1,0 +1,58 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="common.css">
+<script src="iso.js"></script>
+<style>
+  .cols { position: absolute; left: 120px; right: 120px; top: 400px; bottom: 90px;
+          display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; }
+  .col { background: var(--panel); border: 1px solid var(--line); border-radius: 24px;
+         padding: 36px 40px; display: flex; flex-direction: column; }
+  .col svg { width: 100%; height: 300px; }
+  .col h3 { font-size: 40px; font-weight: 700; margin-top: 24px; letter-spacing: -.01em; }
+  .col p { font-size: 26px; line-height: 1.45; color: var(--muted); margin-top: 12px; }
+</style>
+</head><body>
+<div class="frame">
+  <div class="eyebrow">Three export modes</div>
+  <h1>Choose how much stays editable.</h1>
+</div>
+<div class="cols">
+  <div class="col"><svg id="a"></svg><h3>Vector</h3>
+    <p>Shapes become curves, text becomes real Blender text. Sharp at any distance.</p></div>
+  <div class="col"><svg id="b"></svg><h3>Texturized</h3>
+    <p>Curves wearing a render of themselves. Gradients and shadows survive.</p></div>
+  <div class="col"><svg id="c"></svg><h3>Image</h3>
+    <p>Every element a textured plane, text included. No fonts needed.</p></div>
+</div>
+<script>
+  function fit(svg, markup, padFrac, defs = '') {
+    svg.innerHTML = `<defs>${defs}</defs><g id="g">${markup}</g>`;
+    const b = svg.querySelector('#g').getBBox();
+    const pad = Math.max(b.width, b.height) * padFrac;
+    svg.setAttribute('viewBox', `${b.x - pad} ${b.y - pad} ${b.width + pad * 2} ${b.height + pad * 2}`);
+  }
+  // The card's Figma drop shadow and photo. Vector drops both; Texturized and
+  // Image keep them, because those modes carry what Figma rendered.
+  const defs = (id) => `
+    <linearGradient id="photo${id}" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffb37a"/><stop offset=".55" stop-color="#c15fff"/><stop offset="1" stop-color="#4a3bd6"/>
+    </linearGradient>
+    <filter id="blur${id}" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="14"/></filter>`;
+  const shadow = (id) => onPlane(-2,
+    `<rect x="18" y="26" width="${CARD_W}" height="${CARD_H}" rx="14" fill="#000" opacity=".75" filter="url(#blur${id})"/>`);
+
+  // Vector: separate pieces in flat colour, no shadow.
+  fit(document.getElementById('a'), stackedCard({ t: 6, gap: 10 }), 0.08);
+
+  // Texturized: the same separate pieces, wearing the render.
+  fit(document.getElementById('b'), shadow('b') + stackedCard({
+    t: 6, gap: 10, texturize: (o) => o.color === '#a259ff' ? 'url(#photob)' : undefined,
+  }), 0.08, defs('b'));
+
+  // Image: one thin plane with the whole card painted on it.
+  fit(document.getElementById('c'),
+      shadow('c') + slab({ x: 0, y: 0, w: CARD_W, h: CARD_H, z: 0, t: 3, color: '#2a2a33' })
+      + onPlane(3, cardPicture().replace('fill="#a259ff"', 'fill="url(#photoc)"')),
+      0.08, defs('c'));
+</script>
+</body></html>

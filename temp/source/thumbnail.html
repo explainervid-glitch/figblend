@@ -1,0 +1,33 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="common.css">
+<script src="iso.js"></script>
+<style>
+  .left { position: absolute; left: 120px; top: 0; bottom: 0; width: 900px;
+          display: flex; flex-direction: column; justify-content: center; }
+  .logo { display: flex; align-items: center; gap: 22px; }
+  .logo svg { width: 92px; height: 92px; }
+  .logo span { font-size: 64px; font-weight: 800; letter-spacing: -.02em; }
+  h1 { font-size: 96px; margin-top: 44px; }
+  .lede { font-size: 34px; margin-top: 28px; max-width: 780px; }
+  #art { position: absolute; right: 40px; top: 50%; width: 880px; height: 880px;
+         transform: translateY(-50%); }
+</style>
+</head><body>
+<div class="left">
+  <div class="logo"><svg id="logo"></svg><span>FigBlend</span></div>
+  <h1>Figma UI,<br>live in Blender.</h1>
+  <p class="lede">Send a frame in one click. Text stays editable, shapes stay curves, layers stack into real 3D.</p>
+</div>
+<svg id="art" xmlns="http://www.w3.org/2000/svg"></svg>
+<script>
+  function fit(svg, markup, padFrac) {
+    svg.innerHTML = `<g id="g">${markup}</g>`;
+    const b = svg.querySelector('#g').getBBox();
+    const pad = Math.max(b.width, b.height) * padFrac;
+    svg.setAttribute('viewBox', `${b.x - pad} ${b.y - pad} ${b.width + pad * 2} ${b.height + pad * 2}`);
+  }
+  fit(document.getElementById('logo'), mark(128), 0.06);
+  fit(document.getElementById('art'), explodedCard({ gap: 150 }), 0.04);
+</script>
+</body></html>
