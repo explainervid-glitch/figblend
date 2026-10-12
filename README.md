@@ -13,29 +13,60 @@ controls.
 
 ## Install
 
-Downloads: [latest release](https://github.com/explainervid-glitch/figblend/releases/latest).
+You need **Blender 4.2 or newer** and the **Figma desktop app** (the browser
+version can't load FigBlend).
 
-### Blender addon (4.2+)
+### Blender
 
-Install from the repository so Blender keeps it updated:
+**Recommended — updates itself.** Do this once:
 
-1. **Preferences → System → Network** → tick **Allow Online Access**.
-2. **Get Extensions** → **Repositories** → **+** → **Add Remote Repository**.
-3. URL:
+1. Open Blender → **Edit → Preferences**.
+2. **System** tab → **Network** → tick **Allow Online Access**.
+3. **Get Extensions** tab → click **Repositories** (top right) → **+** →
+   **Add Remote Repository**.
+4. Paste this URL:
    ```
    https://github.com/explainervid-glitch/figblend/releases/latest/download/index.json
    ```
-   Tick **Check for Updates on Startup**.
-4. Search **FigBlend** → **Install**.
+5. Tick **Check for Updates on Startup**, then confirm the dialog.
+6. Search **FigBlend** in Get Extensions → **Install**.
+7. Close Preferences. In the 3D viewport press `N` — a **FigBlend** tab appears
+   in the sidebar.
 
-### Figma plugin (desktop app)
+Updates: when one is out, the FigBlend tab shows **Update to x.y.z**. Click it,
+then **Update** on the FigBlend entry.
 
-1. Unzip `figblend-plugin-<version>.zip` somewhere permanent.
-2. **Plugins → Development → Import plugin from manifest** → pick its
-   `manifest.json`.
+**Alternative — from a file (no auto-update).**
 
-To update: click the blue version pill in the plugin header, download the new
-zip, unzip it over the same folder.
+1. Download `figblend-addon-<version>.zip` from the
+   [latest release](https://github.com/explainervid-glitch/figblend/releases/latest).
+2. **Edit → Preferences → Get Extensions** → **⌄** (top right) → **Install from
+   Disk…** → pick the zip.
+
+### Figma
+
+1. Download `figblend-plugin-<version>.zip` from the
+   [latest release](https://github.com/explainervid-glitch/figblend/releases/latest).
+2. Unzip it into a folder you'll keep (for example `Documents/FigBlend`).
+   Figma loads the plugin from there every time, so don't delete or move it.
+3. Open the **Figma desktop app** and any design file.
+4. Main menu → **Plugins → Development → Import plugin from manifest…**
+5. Pick `manifest.json` inside the unzipped folder.
+6. Run it: **Plugins → Development → FigBlend**.
+
+Updates: when one is out, a blue version number appears at the top of the
+plugin. Click it, download the new zip, and unzip it **over the same folder**,
+replacing the files. No need to import again.
+
+### Connect them (first time)
+
+1. In Blender, **save** your `.blend` file — assets are stored next to it.
+2. In the FigBlend tab, click **Start Live Link**.
+3. Open the FigBlend plugin in Figma within 5 minutes. The pill at the top shows
+   your `.blend` name when connected.
+
+If the plugin says it isn't paired, click the refresh icon next to the Live
+Link status in Blender, then reopen the plugin.
 
 ---
 
