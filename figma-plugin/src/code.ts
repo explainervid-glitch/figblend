@@ -47,7 +47,10 @@ interface Ctx {
   warnings: string[];
 }
 
-figma.showUI(__html__, { width: 300, height: 272, themeColors: true });
+// The height is a first guess; the UI reports its real content height once it
+// has laid out, and on every change after that.
+const UI_WIDTH = 280;
+figma.showUI(__html__, { width: UI_WIDTH, height: 150, themeColors: true });
 
 // Live Link tokens, kept per Blender process. clientStorage lives in the main
 // thread, so the UI iframe asks for them through these two messages -- its own
@@ -70,6 +73,13 @@ figma.ui.onmessage = async (msg) => {
     } else {
       await figma.clientStorage.deleteAsync(TOKEN_PREFIX + msg.key);
     }
+    return;
+  }
+  if (msg.type === 'resize') {
+    // Clamped so a bad measurement can never shrink the window to nothing or
+    // grow it past the screen.
+    const height = Math.max(100, Math.min(600, Math.round(Number(msg.height) || 0)));
+    figma.ui.resize(UI_WIDTH, height);
     return;
   }
   if (msg.type === 'ui-ready') {

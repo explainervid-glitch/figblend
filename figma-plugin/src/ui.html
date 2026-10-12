@@ -5,7 +5,7 @@
     background: var(--figma-color-bg, #2c2c2c);
     color: var(--figma-color-text, #e6e6e6);
     margin: 0;
-    padding: 12px 12px 10px;
+    padding: 10px;
     -webkit-font-smoothing: antialiased;
   }
 
@@ -17,12 +17,17 @@
   }
   .ic-lg { width: 15px; height: 15px; }
 
-  header { display: flex; align-items: center; gap: 7px; margin-bottom: 11px; }
+  /* Everything visible lives in #app. Its height, not the body's, sizes the
+     plugin window: tooltips are absolutely positioned inside it, so they never
+     count towards it and the window does not jump when one appears. */
+  #app { display: flex; flex-direction: column; gap: 8px; }
+
+  header { display: flex; align-items: center; gap: 6px; }
   header .title { font-weight: 600; flex: 1; }
 
   /* Live-link state, kept to a dot and one word */
   .pill {
-    margin-left: auto; height: 20px; padding: 0 8px; gap: 5px;
+    height: 20px; padding: 0 8px; gap: 5px;
     border-radius: 10px; font-weight: 500;
     background: var(--figma-color-bg-secondary, #383838);
     color: var(--figma-color-text-secondary, #a0a0a0);
@@ -38,32 +43,20 @@
   .pill.upd:hover { color: var(--figma-color-text, #e6e6e6); }
   /* Shown only when more than one Blender answers */
   #linkPick {
-    width: auto; max-width: 128px; height: 16px; padding: 0 2px;
+    width: auto; max-width: 120px; height: 16px; padding: 0 2px;
     border: 0; background: transparent; color: inherit;
     font: inherit; font-weight: 500; cursor: pointer;
   }
 
-  .card {
-    border: 1px solid var(--figma-color-border, rgba(255,255,255,.12));
-    border-radius: 8px;
-  }
-  .line {
-    position: relative;              /* tooltips anchor to the row, not the icon */
-    display: flex; align-items: center; gap: 8px;
-    padding: 7px 10px; min-height: 34px;
-  }
-  .line + .line { border-top: 1px solid var(--figma-color-border, rgba(255,255,255,.12)); }
-  .name { flex: 1; display: flex; align-items: center; gap: 7px; }
-
-  /* The two output modes are mutually exclusive, so they read as one choice */
+  /* The three output modes are mutually exclusive, so they read as one choice */
   .seg {
-    position: relative;
-    display: flex; gap: 3px; margin-top: 8px; padding: 3px;
+    position: relative;            /* tooltips span the whole control */
+    display: flex; gap: 2px; padding: 2px;
     border: 1px solid var(--figma-color-border, rgba(255,255,255,.12));
-    border-radius: 8px;
+    border-radius: 7px;
   }
   .seg button {
-    flex: 1; height: 28px; padding: 0 6px; border-radius: 5px;
+    flex: 1; height: 26px; padding: 0 4px; gap: 5px; border-radius: 5px;
     background: transparent;
     color: var(--figma-color-text-secondary, #a0a0a0);
     font-weight: 500;
@@ -75,54 +68,55 @@
     font-weight: 600;
   }
 
+  /* Scale and quality, side by side */
+  .opts { position: relative; display: flex; gap: 6px; }
+  .field {
+    flex: 1; display: flex; align-items: center; gap: 4px;
+    height: 28px; padding: 0 4px 0 8px; min-width: 0;
+    border: 1px solid var(--figma-color-border, rgba(255,255,255,.12));
+    border-radius: 6px; cursor: help;
+    color: var(--figma-color-text-secondary, #a0a0a0);
+  }
+  .field:focus-within { border-color: var(--figma-color-border-selected, #0d99ff); }
   input[type=number], select {
-    padding: 4px 6px; border: 1px solid transparent; border-radius: 5px;
-    background: transparent; color: var(--figma-color-text, #e6e6e6);
-    font: inherit; font-variant-numeric: tabular-nums;
+    flex: 1; min-width: 0; height: 22px; padding: 0 2px;
+    border: 0; background: transparent;
+    color: var(--figma-color-text, #e6e6e6);
+    font: inherit; font-variant-numeric: tabular-nums; cursor: text;
   }
-  input[type=number] { width: 62px; text-align: right; }
-  select { width: 80px; }
-  input[type=number]:hover, select:hover { border-color: var(--figma-color-border, rgba(255,255,255,.12)); }
-  input[type=number]:focus, select:focus {
-    outline: none;
-    border-color: var(--figma-color-border-selected, #0d99ff);
-    background: var(--figma-color-bg-secondary, #383838);
-  }
-  .unit { color: var(--figma-color-text-secondary, #a0a0a0); margin-left: -4px; }
+  input[type=number] { text-align: right; }
+  select { cursor: pointer; }
+  input[type=number]:focus, select:focus { outline: none; }
+  .unit { flex: none; }
 
-  /* Detail lives in tooltips so the panel stays scannable. They stretch to the
-     width of the row they belong to rather than hanging off the icon, so they
-     cannot run past the edge of the panel and get clipped. */
-  .info { display: flex; opacity: .4; cursor: help; }
-  .info:hover { opacity: .85; }
+  /* Detail lives in tooltips so the panel stays scannable. They stretch to
+     the width of the row they belong to, so they cannot run off the edge. */
   [data-tip]::after {
     content: attr(data-tip);
     position: absolute; left: 0; right: 0; z-index: 20;
-    top: calc(100% + 7px);
-    padding: 7px 9px;
+    top: calc(100% + 6px);
+    padding: 6px 8px;
     background: var(--figma-color-bg-inverse, #1e1e1e);
     color: var(--figma-color-text-oninverse, #fff);
     border-radius: 6px; font-weight: 400; line-height: 1.4; text-align: left;
+    white-space: normal;
     box-shadow: 0 4px 14px rgba(0,0,0,.3);
-    opacity: 0; visibility: hidden; transition: opacity .1s ease .25s;
+    opacity: 0; visibility: hidden; transition: opacity .1s ease .3s;
     pointer-events: none;
   }
-  [data-tip].up::after { top: auto; bottom: calc(100% + 7px); }
+  [data-tip].up::after { top: auto; bottom: calc(100% + 6px); }
   [data-tip]:hover::after { opacity: 1; visibility: visible; }
 
-  footer { display: flex; align-items: center; gap: 6px; margin-top: 11px; }
   button {
     display: flex; align-items: center; justify-content: center; gap: 6px;
     height: 32px; padding: 0 12px; border: 0; border-radius: 6px;
     font: inherit; font-weight: 600; cursor: pointer;
   }
-  #export { flex: 1; background: var(--figma-color-bg-brand, #0d99ff); color: var(--figma-color-text-onbrand, #ffffff); }
+  #export { background: var(--figma-color-bg-brand, #0d99ff); color: var(--figma-color-text-onbrand, #ffffff); }
   #export:hover:not(:disabled) { filter: brightness(1.08); }
-  #cancel { background: transparent; color: var(--figma-color-text-secondary, #a0a0a0); }
-  #cancel:hover { color: var(--figma-color-text, #e6e6e6); }
   button:disabled { opacity: .45; cursor: default; }
 
-  #status { margin-top: 8px; min-height: 26px; color: var(--figma-color-text-secondary, #a0a0a0); }
+  #status { color: var(--figma-color-text-secondary, #a0a0a0); }
   #status.error { color: var(--figma-color-text-danger, #ff9d9d); }
   .hidden { display: none !important; }
 </style>
@@ -138,6 +132,7 @@
   <g id="i-up"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4"/><path d="M12 16V8"/></g>
 </defs></svg>
 
+<div id="app">
 <header>
   <svg class="ic ic-lg" viewBox="0 0 24 24"><use href="#i-box"/></svg>
   <span class="title">FigBlend</span>
@@ -149,50 +144,44 @@
   </button>
 </header>
 
-<div class="card">
-  <div class="line">
-    <span class="name"><svg class="ic" viewBox="0 0 24 24"><use href="#i-scan"/></svg> Scale</span>
+<div class="seg" id="modeSeg">
+  <button type="button" class="on" data-mode="vector"
+          data-tip="Curves and editable text. Sharp at any distance. Gradients and images become textures.">
+    <svg class="ic" viewBox="0 0 24 24"><use href="#i-pen"/></svg> Vector
+  </button>
+  <button type="button" data-mode="texvector"
+          data-tip="Curves wearing a render of themselves. Keeps gradients and shadows on real geometry.">
+    <svg class="ic" viewBox="0 0 24 24"><use href="#i-image"/></svg> Texturized
+  </button>
+  <button type="button" data-mode="image"
+          data-tip="Everything baked to textured planes, text included. Nothing editable, no fonts needed.">
+    <svg class="ic" viewBox="0 0 24 24"><use href="#i-type"/></svg> Image
+  </button>
+</div>
+
+<div class="opts">
+  <label class="field up" data-tip="Pixels per metre. At 1000, a 1440 px frame is 1.44 m wide in Blender.">
+    <svg class="ic" viewBox="0 0 24 24"><use href="#i-scan"/></svg>
     <input id="pxPerMeter" type="number" value="1000" min="1" step="100" />
     <span class="unit">px/m</span>
-    <span class="info" data-tip="Pixels per metre. At 1000, a 1440 px frame lands 1.44 m wide in Blender.">
-      <svg class="ic" viewBox="0 0 24 24"><use href="#i-info"/></svg></span>
-  </div>
-  <div class="line"> 
-    <span class="name"><svg class="ic" viewBox="0 0 24 24"><use href="#i-image"/></svg> Quality</span>
+  </label>
+  <label class="field up" id="qualityTip" data-tip="">
+    <svg class="ic" viewBox="0 0 24 24"><use href="#i-image"/></svg>
     <select id="rasterScale">
       <option value="1">1× draft</option>
       <option value="2" selected>2×</option>
       <option value="3">3×</option>
       <option value="4">4× close-up</option>
     </select>
-    <span class="info" id="qualityTip" data-tip="">
-      <svg class="ic" viewBox="0 0 24 24"><use href="#i-info"/></svg></span>
-  </div>
+  </label>
 </div>
 
-<div class="seg" id="modeSeg">
-  <button type="button" class="up on" data-mode="vector"
-          data-tip="Solid shapes rebuild as real curves — sharp at any distance, and extrudable. Strokes are outlined so borders survive. Text stays editable. Gradients and effects rasterize instead.">
-    <svg class="ic" viewBox="0 0 24 24"><use href="#i-pen"/></svg> Vector
-  </button>
-  <button type="button" class="up" data-mode="texvector"
-          data-tip="Curve geometry wearing a render of itself, lined up with the design. Keeps the sharp silhouette and the extrudable shape, while gradients, shadows and anything else the plain vector route loses survive in the texture.">
-    <svg class="ic" viewBox="0 0 24 24"><use href="#i-image"/></svg> Texturized
-  </button>
-  <button type="button" class="up" data-mode="image"
-          data-tip="Bakes every element to a textured plane, text included. Hierarchy is kept, so cards still move their contents — but nothing stays editable, and no fonts need installing.">
-    <svg class="ic" viewBox="0 0 24 24"><use href="#i-type"/></svg> Image
-  </button>
+<button id="export">
+  <svg class="ic" viewBox="0 0 24 24"><use href="#i-download"/></svg> Export
+</button>
+
+<div id="status" class="hidden"></div>
 </div>
-
-<footer>
-  <button id="cancel">Cancel</button>
-  <button id="export">
-    <svg class="ic" viewBox="0 0 24 24"><use href="#i-download"/></svg> Export
-  </button>
-</footer>
-
-<div id="status"></div>
 
 <script>
   const statusEl = document.getElementById('status');
@@ -407,8 +396,18 @@
 
   function setStatus(text, isError) {
     statusEl.textContent = text;
-    statusEl.className = isError ? 'error' : '';
+    statusEl.className = (isError ? 'error' : '') + (text ? '' : ' hidden');
   }
+
+  // The window is as tall as its content: no empty space when idle, and a
+  // long status or a second Blender in the picker never gets clipped. The
+  // main thread owns the window, so the height goes there to be applied.
+  const app = document.getElementById('app');
+  const PAD = 20;  // body padding, top and bottom
+  new ResizeObserver(() => {
+    const height = Math.ceil(app.getBoundingClientRect().height) + PAD;
+    parent.postMessage({ pluginMessage: { type: 'resize', height } }, '*');
+  }).observe(app);
 
   exportBtn.onclick = () => {
     exportBtn.disabled = true;
@@ -421,9 +420,6 @@
     }}, '*');
   };
 
-  document.getElementById('cancel').onclick = () => {
-    parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*');
-  };
 
   onmessage = (event) => {
     const msg = event.data.pluginMessage;
