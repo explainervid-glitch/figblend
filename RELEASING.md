@@ -67,6 +67,15 @@ asks for the one permission it needs (`contents: write`) itself.
 
 ## Every release
 
+### 0. See where you are
+
+```bash
+npm run version:check
+```
+
+Shows the current version, whether every file agrees on it, and whether it is
+already released. If it is, it tells you the next version to bump to.
+
 ### 1. Set the version
 
 ```bash

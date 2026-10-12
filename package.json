@@ -9,6 +9,7 @@
   },
   "scripts": {
     "bump": "node tools/bump.mjs",
+    "version:check": "node tools/version.mjs",
     "package": "node tools/package.mjs",
     "package:addon": "node tools/package.mjs --addon-only",
     "package:plugin": "node tools/package.mjs --plugin-only",

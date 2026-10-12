@@ -35,6 +35,43 @@ export function isPlaceholder(repo) {
   return repo === 'OWNER/REPO';
 }
 
+// --- reading back ------------------------------------------------------------
+// Every copy of the version and repository, as the files say right now. Used by
+// `npm run package` to refuse a build that disagrees with itself, and by
+// `npm run version:check` to show where things stand.
+
+function readMatch(relative, pattern, what) {
+  // LF-normalised, or $ would never match on a CRLF checkout.
+  const source = fs.readFileSync(path.join(ROOT, relative), 'utf8')
+    .replace(/\r\n/g, '\n');
+  const match = source.match(pattern);
+  if (!match) fail(`could not read ${what} from ${relative}`);
+  return match.slice(1).join('.');
+}
+
+export function stampedVersions() {
+  return {
+    'package.json': readProject().version,
+    'blender_manifest.toml': readMatch('blender-addon/figblend/blender_manifest.toml',
+      /^version = "(.*)"$/m, 'version'),
+    '__init__.py bl_info': readMatch('blender-addon/figblend/__init__.py',
+      /"version": \((\d+), (\d+), (\d+)\)/, 'bl_info version'),
+    'code.ts PLUGIN_VERSION': readMatch('figma-plugin/src/code.ts',
+      /^const PLUGIN_VERSION = '(.*)';$/m, 'PLUGIN_VERSION'),
+    'figma-plugin/package.json': readMatch('figma-plugin/package.json',
+      /^  "version": "(.*)",$/m, 'version'),
+  };
+}
+
+export function stampedRepos() {
+  return {
+    'updater.py GITHUB_REPO': readMatch('blender-addon/figblend/updater.py',
+      /^GITHUB_REPO = "(.*)"$/m, 'GITHUB_REPO'),
+    'code.ts GITHUB_REPO': readMatch('figma-plugin/src/code.ts',
+      /^const GITHUB_REPO: string = '(.*)';$/m, 'GITHUB_REPO'),
+  };
+}
+
 // Each target names exactly one line. A pattern that matches zero times or
 // more than once means the file has drifted from what this script expects,
 // which is worth stopping for rather than half-stamping.

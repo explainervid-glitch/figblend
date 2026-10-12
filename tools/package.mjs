@@ -28,7 +28,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { isPlaceholder, readProject } from './bump.mjs';
+import { isPlaceholder, readProject, stampedRepos, stampedVersions } from './bump.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
@@ -162,36 +162,6 @@ function collect(dir, prefix, entries = []) {
 // One project version, stamped into several files by `npm run bump`. Read back
 // from every one of them here, so a hand edit that missed a copy fails the
 // build instead of shipping a plugin that disagrees with its own release tag.
-
-function readMatch(relative, pattern, what) {
-  // LF-normalised, or $ would never match on a CRLF checkout.
-  const source = fs.readFileSync(path.join(ROOT, relative), 'utf8')
-    .replace(/\r\n/g, '\n');
-  const match = source.match(pattern);
-  if (!match) fail(`could not read ${what} from ${relative}`);
-  return match.slice(1).join('.');
-}
-
-function stampedVersions() {
-  return {
-    'package.json': readProject().version,
-    'blender_manifest.toml': readMatch('blender-addon/figblend/blender_manifest.toml',
-      /^version = "(.*)"$/m, 'version'),
-    '__init__.py bl_info': readMatch('blender-addon/figblend/__init__.py',
-      /"version": \((\d+), (\d+), (\d+)\)/, 'bl_info version'),
-    'code.ts': readMatch('figma-plugin/src/code.ts',
-      /^const PLUGIN_VERSION = '(.*)';$/m, 'PLUGIN_VERSION'),
-  };
-}
-
-function stampedRepos() {
-  return {
-    'updater.py': readMatch('blender-addon/figblend/updater.py',
-      /^GITHUB_REPO = "(.*)"$/m, 'GITHUB_REPO'),
-    'code.ts': readMatch('figma-plugin/src/code.ts',
-      /^const GITHUB_REPO: string = '(.*)';$/m, 'GITHUB_REPO'),
-  };
-}
 
 function checkConsistency() {
   const project = readProject();
