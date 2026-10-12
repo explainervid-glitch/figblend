@@ -16,46 +16,47 @@ other beyond it.
 
 ## Status
 
-**v0.1 — imports end to end in Blender 5.2 LTS.**
+**v0.2.0 — in use on real Figma files, Blender 4.2 – 5.2.**
 
-Verified:
+Working and verified:
 
-- Full import into Blender 5.2: hierarchy, parenting, text objects, image
-  planes, materials, and the sidebar controls.
-- Every object lands at its expected world position (Y-flip, px→m, Z stacking).
-- Text rebuilt as real FONT objects with correct font, size, alignment,
-  letter spacing and line height.
-- Font resolution against a real Windows collection: 177 families / 516 faces
-  indexed in 0.6 s, correct on `Arial Bold Italic`, `Segoe UI Semi Bold`,
-  `Roboto Medium`, `Calibri Light`; substitutions reported rather than silent.
-- Sidebar controls: split material, emission↔BSDF blend (isolated to the split
-  material), shadow toggles.
-- Figma plugin typechecks and builds clean (`tsc`).
-- ZIP writer output reads correctly in Python's `zipfile` with valid CRCs.
-- Bundle validation: schema gating, missing manifest, corrupt zip, and zip-slip
-  path traversal all rejected.
+- **Real Figma exports** in all three modes — Vector, Texturized, Image —
+  sent over Live Link or imported from a downloaded `.zip`.
+- **Hierarchy:** frames and groups become nested collections, contents are
+  parented to their card, and every object lands at its Figma position.
+- **Text** as real FONT objects, with the font resolved from the system and
+  any substitution reported rather than silent.
+- **Vectors** as curves, strokes outlined into real geometry, layer masks
+  rebuilt as the mask shape wearing its content as a texture.
+- **Build 3D:** extrusion grows back from each layer's face, and layers stack
+  on whatever they actually overlap rather than by layer count.
+- **Live Link:** one-click send, several Blenders told apart by port, a pairing
+  token so other web pages cannot push into the scene, and a re-send that
+  replaces the previous import instead of piling up.
+- **Updates:** ships as a Blender extension that Blender updates itself; the
+  plugin flags new releases. See [RELEASING.md](RELEASING.md).
+- Extension validated and installed on Blender 4.2 and 5.2; plugin compiles
+  clean with `tsc`.
 
-Not yet verified: **a real Figma export.** The importer has only been fed the
-synthetic bundle in [`samples/`](samples). The exporter's node walk, rasterizing
-and backdrop-cloning have not run against a live Figma document.
+Not yet verified: **the Texturized texture lining up in a final render.** Its
+UV mapping checks out numerically, but has not been confirmed visually in a
+rendered frame.
 
 ## Test it without Figma
 
-[`samples/make_test_bundle.py`](samples/make_test_bundle.py) generates a bundle
-that exercises every code path — nested groups, backdrops, transparency,
-LEFT/TOP and CENTER/CENTER text, negative letter spacing, an explicit line
-height, a rotated leaf, and a deliberately missing font weight.
+[`samples/`](samples) holds bundles that import through **File → Import →
+FigBlend Bundle**, which exercises the whole importer with no plugin involved:
 
-```bash
-python samples/make_test_bundle.py
-```
+| Bundle | What it covers | Imports as |
+|---|---|---|
+| `test_bundle.zip` | Small dashboard: nested groups, five text styles, vectors, an image, a masked avatar | 11 objects |
+| `22_1.zip` | A real Vector-mode export: text, curves and rasters together | 16 objects |
+| `1.zip` | A real Image-mode export, every element a textured plane | 50 objects |
 
-Then import `samples/test_bundle.zip` in Blender. You should get 11 objects, and
-a warning that `Inter Semi Bold` was substituted — that warning is correct
-behaviour, not a failure.
-
-It also writes `samples/test_bundle_flat.zip`, the flat-mode equivalent: one
-plane, one texture, no warnings.
+Font warnings are expected and correct. `test_bundle.zip` asks for
+`Inter Semi Bold` and reports the substitution, and `22_1.zip` uses Averta,
+which most machines do not have — both should be reported, not silently
+swapped.
 
 ## Package
 
@@ -99,9 +100,8 @@ there is one.
 `figblend-addon-<version>.zip`. Works, but Blender cannot update a copy
 installed this way; FigBlend still tells you when a release is out.
 
-**For development:** copy `blender-addon/figblend/` into
-`scripts/addons/`. The `bl_info` in `__init__.py` exists for this; installed as
-an extension, Blender reads `blender_manifest.toml` instead.
+**For development:** link the source folder into Blender instead — see
+[Development](#development).
 
 You get **File → Import → FigBlend Bundle (.zip)** and a **FigBlend** tab in the
 3D viewport sidebar (`N`).
@@ -130,6 +130,130 @@ manifest → pick `figma-plugin/manifest.json`.
 Re-run `npm run build` after editing `src/code.ts` (or `npm run watch` to
 rebuild on save), then re-run the plugin in Figma to pick up changes. Editing
 `src/ui.html` needs no build step.
+
+## Development
+
+### What you need
+
+- **Node.js 18 or newer** — builds the plugin and runs the release tooling
+  (CI uses 22).
+- **Blender 4.2 LTS or newer** — test on 4.2 as well as your daily version
+  when touching anything version-sensitive; 4.2 is the declared minimum.
+- **Figma desktop app** — development plugins only load from disk there.
+
+### Layout
+
+| Path | What lives there |
+|---|---|
+| `blender-addon/figblend/` | The addon. `builder.py` turns a bundle into objects, `bridge.py` is Live Link, `updater.py` the update check |
+| `figma-plugin/src/code.ts` | Plugin main thread: walks the selection, exports assets |
+| `figma-plugin/src/ui.html` | Plugin panel, zip writer, Live Link client — plain HTML/JS, no build |
+| `SCHEMA.md` | The bundle format both sides read and write |
+| `tools/` | `bump.mjs` (versions) and `package.mjs` (release archives) |
+| `.github/workflows/release.yml` | Publishes a release when a `v*` tag is pushed |
+
+### 1. Set up once
+
+```bash
+git clone https://github.com/explainervid-glitch/figblend.git
+```
+
+```bash
+npm install --prefix figblend/figma-plugin
+```
+
+**Link the addon into Blender** rather than copying it, so every edit is live.
+Remove any existing `figblend` folder or installed FigBlend extension first —
+two copies register the same operators and clash.
+
+Windows (PowerShell, from the repo root; a junction needs no admin rights):
+
+```powershell
+New-Item -ItemType Junction -Path "$env:APPDATA\Blender Foundation\Blender\5.2\scripts\addons\figblend" -Target "$PWD\blender-addon\figblend"
+```
+
+macOS:
+
+```bash
+ln -s "$PWD/blender-addon/figblend" "$HOME/Library/Application Support/Blender/5.2/scripts/addons/figblend"
+```
+
+Linux:
+
+```bash
+ln -s "$PWD/blender-addon/figblend" "$HOME/.config/blender/5.2/scripts/addons/figblend"
+```
+
+Change `5.2` to your Blender version. Then **Preferences → Add-ons**, search
+**FigBlend**, enable it.
+
+This loads FigBlend as a legacy add-on, through the `bl_info` in
+`__init__.py`. Blender ignores `blender_manifest.toml` there, and ignores
+`bl_info` when FigBlend is installed as an extension — so the same folder serves
+both.
+
+**Load the plugin into Figma:** Plugins → Development → Import plugin from
+manifest → `figma-plugin/manifest.json`. Once only; Figma reads the files fresh
+on every run.
+
+### 2. The edit loop
+
+**Addon.** Edit the `.py` files, then in Blender press `F3` → **Reload
+Scripts**. The add-on unregisters and re-registers with your changes; Live Link
+stops with it and comes back if Auto-Start is on. A change to an operator's
+properties or a panel's layout sometimes needs the add-on disabled and enabled
+instead.
+
+Errors print to Blender's system console — **Window → Toggle System Console**
+on Windows, or start Blender from a terminal elsewhere.
+
+**Plugin.** Keep the compiler running:
+
+```bash
+npm run watch --prefix figma-plugin
+```
+
+Edit `src/code.ts`, then re-run the plugin in Figma: **Plugins → Development →
+FigBlend**, or `Ctrl+Alt+P` / `⌘⌥P` to re-run the last plugin. `src/ui.html` is
+read as-is, so it only needs the re-run.
+
+Logs from both `code.ts` and `ui.html` go to **Plugins → Development → Show/Hide
+console**.
+
+**Both at once.** Turn on Live Link in Blender's FigBlend panel (the `.blend`
+must be saved), then **Send to Blender** from the plugin. Each send replaces the
+previous import of the same frame, so the loop is: edit, reload, send, look.
+
+### 3. Without Figma
+
+The bundles in [`samples/`](samples) import through **File → Import → FigBlend
+Bundle**, which exercises the whole importer without the plugin. Useful when the
+bug is on the Blender side.
+
+### 4. Before you commit
+
+```bash
+npm run package
+```
+
+It compiles the plugin — a TypeScript error stops it — and checks that every
+file agrees on the version and repository. Then, to have Blender itself check
+the extension:
+
+```bash
+blender --factory-startup --command extension validate dist/figblend-addon-0.2.0.zip
+```
+
+If you changed the bundle format, update [`SCHEMA.md`](SCHEMA.md) in the same
+commit. Both halves are written against it, and a change only one side knows
+about breaks imports silently.
+
+### 5. Versions and releases
+
+Never edit a version number by hand. `npm run bump 0.3.0` writes it into every
+file that carries one, for the addon and the plugin alike; `npm run package`
+fails if any disagree. Releasing is a tag push — see
+[RELEASING.md](RELEASING.md).
 
 ## Use it
 
@@ -297,6 +421,9 @@ transparency — tinted glass over the UI, say — and can live with the sorting
 - **Mixed styling inside one text box** is exported (`segments`) but not applied
   — Blender text objects have no per-character font support without splitting
   into separate objects.
+- **Layer opacity, text case and text decoration are exported but not
+  applied.** A 40% layer imports opaque, Uppercase text imports as typed, and
+  underline or strikethrough is dropped.
 - **Text metrics are approximate.** Letter spacing and line height are mapped to
   Blender's multipliers; long paragraphs drift. See the bottom of
   [`SCHEMA.md`](SCHEMA.md).
