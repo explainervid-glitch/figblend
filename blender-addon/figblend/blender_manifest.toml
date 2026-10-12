@@ -1,0 +1,27 @@
+schema_version = "1.0.0"
+
+# Shipped as a Blender extension so Blender's own extension system handles
+# updates, from the repository index each GitHub release publishes. The
+# bl_info in __init__.py is ignored when installed this way; it stays so the
+# folder still works copied straight into scripts/addons during development.
+#
+# version and website are stamped by `npm run bump` -- edit them there.
+
+id = "figblend"
+version = "0.2.0"
+name = "FigBlend"
+tagline = "Import Figma UI as editable text, curves and planes"
+maintainer = "tegarfolder"
+type = "add-on"
+website = "https://github.com/explainervid-glitch/figblend"
+
+tags = ["Import-Export"]
+
+blender_version_min = "4.2.0"
+
+# Blender add-ons link against bpy, which is GPL, so the add-on is GPL as well.
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+network = "Receive Figma exports on localhost and check for updates"
+files = "Import bundles and write assets beside the .blend"

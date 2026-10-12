@@ -5,7 +5,7 @@ import zipfile
 import bpy
 from bpy_extras.io_utils import ImportHelper
 
-from . import bridge, builder, fonts, materials
+from . import bridge, builder, fonts, materials, updater
 
 
 class FIGBLEND_OT_import(bpy.types.Operator, ImportHelper):
@@ -104,6 +104,16 @@ class FIGBLEND_OT_import(bpy.types.Operator, ImportHelper):
         description="Embed the PNGs in the .blend so the file survives being moved",
         default=True,
     )
+    replace_existing: bpy.props.BoolProperty(
+        name="Replace Previous Import",
+        description=(
+            "Delete an earlier import of this same bundle before building, so "
+            "re-exporting a frame updates it in place instead of stacking a "
+            "second copy on top. Any edits made to that earlier import go with "
+            "it. Turn this off to keep both"
+        ),
+        default=True,
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -130,6 +140,7 @@ class FIGBLEND_OT_import(bpy.types.Operator, ImportHelper):
         col.prop(self, "text_no_shadow")
         col.prop(self, "no_shadows")
 
+        layout.prop(self, "replace_existing")
         layout.prop(self, "pack_images")
 
     def execute(self, context):
@@ -150,6 +161,8 @@ class FIGBLEND_OT_import(bpy.types.Operator, ImportHelper):
             summary += ", %d texturized vector(s)" % report.textured
         if report.extruded:
             summary += ", %d extruded" % report.extruded
+        if report.replaced:
+            summary += ", replaced %d previous import(s)" % report.replaced
         if report.collapsed:
             summary += ", %d empty frame(s) collapsed" % report.collapsed
         if report.bad_bounds:
@@ -358,7 +371,10 @@ class FIGBLEND_OT_build_geometry(bpy.types.Operator):
             if obj.type in builder.CURVE_TYPES:
                 builder.apply_thickness(obj, self.depth)
                 for target in builder.thickness_targets(obj):
-                    if target.type in builder.CURVE_TYPES:
+                    # Not text: bevel_depth grows both ways from the curve
+                    # plane, which would push text back off its front face.
+                    if (target.type in builder.CURVE_TYPES
+                            and target.type not in builder.SOLIDIFY_TYPES):
                         target.data.bevel_depth = self.bevel
                         target.data.bevel_resolution = self.bevel_resolution
                 curves += 1
@@ -451,6 +467,64 @@ class FIGBLEND_OT_toggle_bridge(bpy.types.Operator):
         return {"FINISHED"} if ok else {"CANCELLED"}
 
 
+class FIGBLEND_OT_repair_link(bpy.types.Operator):
+    bl_idname = "figblend.repair_link"
+    bl_label = "Re-pair"
+    bl_description = (
+        "Issue a new Live Link token and accept one pairing request for the "
+        "next few minutes. Use this if the Figma plugin reports that it is not "
+        "paired with this Blender"
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return bridge.is_running()
+
+    def execute(self, context):
+        bridge.open_pairing()
+        self.report({"INFO"},
+                    "Pairing open for %d s -- press Export in Figma now"
+                    % int(bridge.PAIR_WINDOW))
+        return {"FINISHED"}
+
+
+class FIGBLEND_OT_check_update(bpy.types.Operator):
+    bl_idname = "figblend.check_update"
+    bl_label = "Check for Updates"
+    bl_description = "Ask GitHub whether a newer FigBlend has been released"
+
+    def execute(self, context):
+        updater.check(force=True)
+        info = updater.state()
+        if info["status"] == "disabled":
+            self.report({"WARNING"}, info["message"])
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class FIGBLEND_OT_get_update(bpy.types.Operator):
+    bl_idname = "figblend.get_update"
+    bl_label = "Get Update"
+    bl_description = (
+        "Open Blender's Extensions page to install the update. A copy that was "
+        "installed from a downloaded zip cannot update in place, so this opens "
+        "the release page instead"
+    )
+
+    def execute(self, context):
+        if updater.install_source() == "repository":
+            # Blender's own page, filtered to installed extensions, where the
+            # FigBlend entry carries an Update button. Present since 4.2.
+            if hasattr(bpy.ops.extensions, "userpref_show_for_update"):
+                bpy.ops.extensions.userpref_show_for_update()
+            else:
+                context.preferences.active_section = "EXTENSIONS"
+                bpy.ops.screen.userpref_show("INVOKE_DEFAULT")
+            return {"FINISHED"}
+        bpy.ops.wm.url_open(url=updater.release_url())
+        return {"FINISHED"}
+
+
 class FIGBLEND_OT_rebuild_fonts(bpy.types.Operator):
     bl_idname = "figblend.rebuild_font_index"
     bl_label = "Rescan Installed Fonts"
@@ -476,5 +550,8 @@ classes = (
     FIGBLEND_OT_flatten_geometry,
     FIGBLEND_OT_select_relight,
     FIGBLEND_OT_toggle_bridge,
+    FIGBLEND_OT_repair_link,
+    FIGBLEND_OT_check_update,
+    FIGBLEND_OT_get_update,
     FIGBLEND_OT_rebuild_fonts,
 )

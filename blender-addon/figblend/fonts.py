@@ -250,6 +250,21 @@ def resolve(family, style):
 _loaded = {}
 
 
+def _alive(datablock):
+    """False once Blender has freed the ID this Python object pointed at.
+
+    The cache is module state, so it outlives the file it was filled from.
+    Opening another .blend frees every font datablock in it while the cache
+    keeps handing them out, and the next text import dies on
+    "StructRNA of type VectorFont has been removed".
+    """
+    try:
+        datablock.name
+        return True
+    except ReferenceError:
+        return False
+
+
 def load(family, style, report=None, on_substitute=None):
     """Load (and cache) a Blender font datablock.
 
@@ -258,7 +273,10 @@ def load(family, style, report=None, on_substitute=None):
     """
     key = (normalize(family), normalize(style))
     if key in _loaded:
-        return _loaded[key]
+        cached_font = _loaded[key][0]
+        if cached_font is None or _alive(cached_font):
+            return _loaded[key]
+        del _loaded[key]  # freed with the previous file; load it again below
 
     wanted = "%s %s" % (family, style)
     match = resolve(family, style)

@@ -46,6 +46,8 @@ class ImportReport:
         self.extruded = 0
         self.collapsed = 0
         self.bad_bounds = 0
+        # Collections from an earlier import of the same bundle, replaced.
+        self.replaced = 0
         self.empty_collections = 0
         # Shapes whose Figma effects (shadows, blurs) were discarded in favour
         # of real geometry. Tagged so they can be found and relit.
@@ -99,8 +101,17 @@ def import_bundle(filepath, options, report=None):
     px_per_meter = options.px_per_meter or data["export_settings"].get("px_per_meter", 1000)
     scale = 1.0 / float(px_per_meter)
 
+    # Re-sending the same frame is the normal iteration loop, so the new import
+    # takes the old one's place instead of piling up beside it. Keyed on the
+    # bundle filename, which the plugin derives from the selection -- so a
+    # different frame lands in its own collection and is left alone.
+    source = os.path.basename(filepath).lower()
+    if getattr(options, "replace_existing", True):
+        report.replaced = _remove_previous_import(source)
+
     name = data.get("document", {}).get("name") or "FigBlend"
     collection = bpy.data.collections.new(name)
+    collection["figblend_source"] = source
     bpy.context.scene.collection.children.link(collection)
 
     # Building geometry on import ties spacing to thickness, so layers sit face
@@ -166,6 +177,52 @@ def _new_collection(name, parent_collection):
     collection = bpy.data.collections.new(name)
     parent_collection.children.link(collection)
     return collection
+
+
+def _remove_previous_import(source):
+    """Delete whatever an earlier import of the same bundle left behind.
+
+    Objects go first, then their mesh/curve data and any UI material that just
+    lost its last user -- otherwise every re-send leaks a full set of datablocks
+    that only a save-and-reload would clear.
+
+    Returns the number of collections removed.
+    """
+    stale = [c for c in bpy.data.collections
+             if c.get("figblend_source") == source]
+    if not stale:
+        return 0
+
+    orphans = []
+
+    def strip(collection):
+        for child in list(collection.children):
+            strip(child)
+        for obj in list(collection.objects):
+            data = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            if data is not None and data.users == 0:
+                orphans.append(data)
+        # Never remove a collection still linked somewhere we did not visit.
+        bpy.data.collections.remove(collection)
+
+    for collection in stale:
+        try:
+            collection.name  # a nested one may already be gone with its parent
+        except ReferenceError:
+            continue
+        strip(collection)
+
+    # Mesh and curve data first: they own the material slots, so a material only
+    # drops to zero users once its data is gone.
+    if orphans:
+        bpy.data.batch_remove(orphans)
+
+    spent = [m for m in bpy.data.materials
+             if m.users == 0 and materials.is_ui_material(m)]
+    if spent:
+        bpy.data.batch_remove(spent)
+    return len(stale)
 
 
 def _prune_empty_collections(collection):
@@ -669,6 +726,13 @@ def build_text(node, ctx):
 
 CURVE_TYPES = {"CURVE", "FONT", "SURFACE"}
 
+# Text is a curve too, but TextCurve.transform() is a no-op: the geometry is
+# regenerated from the body string, so the back-shift that keeps a curve's front
+# face on the origin never lands. Left on `extrude` alone, text straddles its
+# origin and floats half the depth above whatever it sits on. Solidify grows
+# backwards from the real front face, so text goes through that path instead.
+SOLIDIFY_TYPES = {"FONT", "MESH"}
+
 
 def thickness_targets(obj):
     """The object plus the extra SVG paths that make up the same shape."""
@@ -691,19 +755,22 @@ def apply_thickness(obj, depth):
     """
     for target in thickness_targets(obj):
         previous = target.get("figblend_depth", 0.0)
-        if target.type in CURVE_TYPES:
-            data = target.data
-            data.extrude = depth / 2.0
-            if data.dimensions == "2D" and data.fill_mode != "BOTH":
-                data.fill_mode = "BOTH"  # otherwise the ends stay open
-            data.transform(Matrix.Translation((0.0, 0.0, (previous - depth) / 2.0)))
-        elif target.type == "MESH":
+        if target.type in SOLIDIFY_TYPES:
+            if target.type == "FONT":
+                # A solidified font must not also be extruded, or the two stack.
+                target.data.extrude = 0.0
             modifier = target.modifiers.get("FigBlend Solidify")
             if modifier is None:
                 modifier = target.modifiers.new("FigBlend Solidify", "SOLIDIFY")
             modifier.thickness = depth
             modifier.offset = -1.0  # keeps the original face, grows behind it
             modifier.use_rim = True
+        elif target.type in CURVE_TYPES:
+            data = target.data
+            data.extrude = depth / 2.0
+            if data.dimensions == "2D" and data.fill_mode != "BOTH":
+                data.fill_mode = "BOTH"  # otherwise the ends stay open
+            data.transform(Matrix.Translation((0.0, 0.0, (previous - depth) / 2.0)))
         else:
             continue
         target["figblend_depth"] = depth
@@ -713,14 +780,18 @@ def clear_thickness(obj):
     """Undo apply_thickness, putting the geometry back on the origin."""
     for target in thickness_targets(obj):
         previous = target.get("figblend_depth", 0.0)
-        if target.type in CURVE_TYPES:
-            target.data.extrude = 0.0
-            target.data.bevel_depth = 0.0
-            target.data.transform(Matrix.Translation((0.0, 0.0, previous / 2.0)))
-        elif target.type == "MESH":
+        if target.type in SOLIDIFY_TYPES:
             modifier = target.modifiers.get("FigBlend Solidify")
             if modifier:
                 target.modifiers.remove(modifier)
+            if target.type == "FONT":
+                # Bundles built before text used Solidify left extrude behind.
+                target.data.extrude = 0.0
+                target.data.bevel_depth = 0.0
+        elif target.type in CURVE_TYPES:
+            target.data.extrude = 0.0
+            target.data.bevel_depth = 0.0
+            target.data.transform(Matrix.Translation((0.0, 0.0, previous / 2.0)))
         if "figblend_depth" in target:
             del target["figblend_depth"]
 

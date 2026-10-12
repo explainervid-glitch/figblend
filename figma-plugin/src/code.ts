@@ -9,7 +9,14 @@
 // and node.rotation is parent-relative, which would double-apply under nesting.
 
 const SCHEMA_VERSION = '1.1.0';
+// Both stamped by `npm run bump` -- edit them there, not here.
 const PLUGIN_VERSION = '0.2.0';
+// Typed as string on purpose. Left to inference, a stamped repository name gets
+// its own literal type, and comparing that with the placeholder below is a
+// compile error -- so the plugin would build only while still unconfigured.
+const GITHUB_REPO: string = 'explainervid-glitch/figblend';
+
+const REPO_PLACEHOLDER = 'OWNER/REPO';
 
 const CONTAINER_TYPES = [
   'FRAME', 'GROUP', 'COMPONENT', 'COMPONENT_SET', 'INSTANCE', 'SECTION',
@@ -42,9 +49,38 @@ interface Ctx {
 
 figma.showUI(__html__, { width: 300, height: 272, themeColors: true });
 
+// Live Link tokens, kept per Blender process. clientStorage lives in the main
+// thread, so the UI iframe asks for them through these two messages -- its own
+// origin is null, which makes localStorage unavailable there.
+const TOKEN_PREFIX = 'bridge-token:';
+
 figma.ui.onmessage = async (msg) => {
   if (msg.type === 'cancel') {
     figma.closePlugin();
+    return;
+  }
+  if (msg.type === 'token-get') {
+    const value = await figma.clientStorage.getAsync(TOKEN_PREFIX + msg.key);
+    figma.ui.postMessage({ type: 'token', key: msg.key, value: value || null });
+    return;
+  }
+  if (msg.type === 'token-set') {
+    if (msg.value) {
+      await figma.clientStorage.setAsync(TOKEN_PREFIX + msg.key, msg.value);
+    } else {
+      await figma.clientStorage.deleteAsync(TOKEN_PREFIX + msg.key);
+    }
+    return;
+  }
+  if (msg.type === 'ui-ready') {
+    uiReady = true;
+    announceUpdate();
+    return;
+  }
+  if (msg.type === 'open-release') {
+    // The URL is built here, never passed in, so the UI can only ever open
+    // this project's own release page.
+    figma.openExternal(releaseUrl());
     return;
   }
   if (msg.type === 'export') {
@@ -57,6 +93,90 @@ figma.ui.onmessage = async (msg) => {
     }
   }
 };
+
+// --- update check ------------------------------------------------------------
+// A plugin loaded from disk cannot replace its own files; only one published
+// through Figma updates itself. So this only looks: at most once a day it asks
+// GitHub for the latest release, and when that is newer the UI offers the
+// release page. Unzipping the new release over this folder is the update --
+// Figma reads the files fresh on the next run.
+
+const UPDATE_CHECK_KEY = 'update-check';
+const UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+interface UpdateCheck { checkedAt: number; latest: string | null; }
+
+function updatesConfigured(): boolean {
+  return !!GITHUB_REPO && GITHUB_REPO !== REPO_PLACEHOLDER;
+}
+
+function releaseUrl(): string {
+  return `https://github.com/${GITHUB_REPO}/releases/latest`;
+}
+
+// 'v1.2.3' -> [1, 2, 3]. A pre-release suffix is ignored: GitHub's "latest
+// release" never points at a pre-release, so there is nothing to rank it by.
+function parseVersion(text: string): number[] | null {
+  const match = /^\s*v?(\d+)\.(\d+)\.(\d+)/.exec(text || '');
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+function isNewer(candidate: number[], current: number[]): boolean {
+  for (let i = 0; i < 3; i++) {
+    if (candidate[i] !== current[i]) return candidate[i] > current[i];
+  }
+  return false;
+}
+
+async function checkForUpdate(): Promise<void> {
+  if (!updatesConfigured()) return;
+  const current = parseVersion(PLUGIN_VERSION);
+  if (!current) return;
+
+  let cached = await figma.clientStorage.getAsync(UPDATE_CHECK_KEY) as
+    UpdateCheck | undefined;
+
+  if (!cached || Date.now() - cached.checkedAt > UPDATE_INTERVAL_MS) {
+    try {
+      const res = await fetch(
+        `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+        { headers: { Accept: 'application/vnd.github+json' } });
+      // A 404 means nothing is released yet; a 403 is the rate limit. Either
+      // way, keep whatever was known and ask again tomorrow rather than on
+      // every run.
+      const body = res.ok ? await res.json() : null;
+      cached = {
+        checkedAt: Date.now(),
+        latest: body && typeof body.tag_name === 'string'
+          ? body.tag_name
+          : (cached ? cached.latest : null),
+      };
+      await figma.clientStorage.setAsync(UPDATE_CHECK_KEY, cached);
+    } catch (err) {
+      return; // offline -- try again next run
+    }
+  }
+
+  const latest = cached && cached.latest ? parseVersion(cached.latest) : null;
+  if (latest && isNewer(latest, current)) {
+    pendingUpdate = latest.join('.');
+    announceUpdate();
+  }
+}
+
+// With a fresh cache the check finishes almost at once, possibly before the UI
+// iframe has loaded and can hear anything. So the answer is held until the UI
+// says it is ready, and sent from whichever side arrives second.
+let pendingUpdate: string | null = null;
+let uiReady = false;
+
+function announceUpdate() {
+  if (uiReady && pendingUpdate) {
+    figma.ui.postMessage({ type: 'update', version: pendingUpdate });
+  }
+}
+
+checkForUpdate().catch(() => { /* never let an update check break the plugin */ });
 
 async function runExport(
   pxPerMeter: number, rasterScale: number, mode: string,

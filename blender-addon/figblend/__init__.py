@@ -1,10 +1,13 @@
 import bpy
 
+# Used only when this folder is copied into scripts/addons as a legacy add-on.
+# Installed as an extension, Blender reads blender_manifest.toml instead and
+# ignores this. version is stamped by `npm run bump` -- edit it there.
 bl_info = {
     "name": "FigBlend",
     "description": "Import UI exported from Figma with editable text, hierarchy and shader controls",
     "author": "",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (4, 2, 0),
     "location": "File > Import > FigBlend Bundle (.zip), and View3D > Sidebar > FigBlend",
     "category": "Import-Export",
@@ -19,10 +22,11 @@ if "fonts" in locals():
     importlib.reload(builder)
     importlib.reload(props)   # bridge reads addon preferences from here
     importlib.reload(bridge)
+    importlib.reload(updater)
     importlib.reload(ops)
     importlib.reload(ui)
 else:
-    from . import fonts, materials, builder, props, bridge, ops, ui
+    from . import fonts, materials, builder, props, bridge, updater, ops, ui
 
 
 def menu_func_import(self, context):
@@ -39,9 +43,11 @@ def register():
     bpy.types.Scene.figblend = bpy.props.PointerProperty(type=props.FigBlendSettings)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
     bridge.register_handlers()
+    updater.register()
 
 
 def unregister():
+    updater.unregister()
     # Leaving the socket bound would keep the port busy after the addon is
     # disabled, and the next enable could not rebind it.
     bridge.unregister_handlers()

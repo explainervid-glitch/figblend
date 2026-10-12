@@ -57,22 +57,66 @@ behaviour, not a failure.
 It also writes `samples/test_bundle_flat.zip`, the flat-mode equivalent: one
 plane, one texture, no warnings.
 
+## Package
+
+Builds everything a release ships into `dist/`:
+
+```bash
+npm run package
+```
+
+```
+dist/figblend-addon-<version>.zip     Blender extension
+dist/figblend-plugin-<version>.zip    unzip, then import its manifest.json
+dist/index.json                       extension repository listing, for updates
+```
+
+The plugin is compiled first, and a `tsc` error stops the whole thing rather
+than shipping a stale `code.js`. `npm run package:addon` and
+`npm run package:plugin` do one each; `--skip-build` packages whatever is
+already in `figma-plugin/dist/`.
+
+There is one project version, set with `npm run bump 0.3.0`, which writes it
+into every file that carries a copy. `npm run package` reads them all back and
+stops if any disagree, so never edit a version by hand.
+
+Publishing a release — and how updates reach people — is in
+[RELEASING.md](RELEASING.md).
+
 ## Install
 
 ### Blender addon
 
-Blender 4.2 LTS or newer.
+Blender 4.2 LTS or newer. FigBlend ships as a Blender **extension**, so Blender
+itself keeps it up to date.
 
-1. Zip the inner `figblend/` folder (the one containing `__init__.py`).
-2. Preferences → Add-ons → Install from Disk → pick the zip → enable it.
+**With updates (recommended):** add the FigBlend repository once, then install
+from it — see [RELEASING.md](RELEASING.md#blender--once). Blender checks for
+updates on every start, and the FigBlend panel shows **Update to x.y.z** when
+there is one.
 
-You get **File → Import → Figma UI Bundle (.zip)** and a **Figma UI** tab in the
+**From a zip:** Preferences → Get Extensions → ⌄ → Install from Disk → pick
+`figblend-addon-<version>.zip`. Works, but Blender cannot update a copy
+installed this way; FigBlend still tells you when a release is out.
+
+**For development:** copy `blender-addon/figblend/` into
+`scripts/addons/`. The `bl_info` in `__init__.py` exists for this; installed as
+an extension, Blender reads `blender_manifest.toml` instead.
+
+You get **File → Import → FigBlend Bundle (.zip)** and a **FigBlend** tab in the
 3D viewport sidebar (`N`).
 
 ### Figma plugin
 
 Needs the **Figma desktop app** — plugins in development can only be loaded from
 disk there, not in the browser.
+
+**From a release:** unzip `figblend-plugin-<version>.zip` somewhere permanent
+and import the `manifest.json` inside, as below. When a newer release is out,
+a blue version pill appears in the plugin's header; unzip the new release over
+the same folder to update.
+
+**From source:**
 
 ```bash
 cd figma-plugin
@@ -102,7 +146,7 @@ No download, no File → Import.
 1. Save your `.blend` (assets are written beside it, so it needs a home).
 2. Sidebar → **Figma UI** → **Start Live Link**.
 3. The plugin's header pill turns green and reads **Blender**; the button
-   becomes **Send to Blender**.
+   becomes **Send to B  lender**.
 
 Assets land in **`./figAssets`** next to the `.blend`, and image paths are
 rewritten blend-relative (`//figAssets/…`) so the folder and the file stay

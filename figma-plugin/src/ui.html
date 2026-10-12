@@ -18,7 +18,7 @@
   .ic-lg { width: 15px; height: 15px; }
 
   header { display: flex; align-items: center; gap: 7px; margin-bottom: 11px; }
-  header .title { font-weight: 600; }
+  header .title { font-weight: 600; flex: 1; }
 
   /* Live-link state, kept to a dot and one word */
   .pill {
@@ -33,6 +33,9 @@
   }
   .pill.live { color: var(--figma-color-text, #e6e6e6); }
   .pill.live .dot { background: #14ae5c; }
+  /* A newer release exists. Present only then, so it reads as news */
+  .pill.upd { color: var(--figma-color-text-brand, #0d99ff); }
+  .pill.upd:hover { color: var(--figma-color-text, #e6e6e6); }
   /* Shown only when more than one Blender answers */
   #linkPick {
     width: auto; max-width: 128px; height: 16px; padding: 0 2px;
@@ -132,11 +135,15 @@
   <g id="i-type"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/></g>
   <g id="i-download"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></g>
   <g id="i-info"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></g>
+  <g id="i-up"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4"/><path d="M12 16V8"/></g>
 </defs></svg>
 
 <header>
   <svg class="ic ic-lg" viewBox="0 0 24 24"><use href="#i-box"/></svg>
   <span class="title">FigBlend</span>
+  <button type="button" class="pill upd hidden" id="update">
+    <svg class="ic" viewBox="0 0 24 24"><use href="#i-up"/></svg><span id="updateText"></span>
+  </button>
   <button type="button" class="pill" id="link" title="Check for a running Blender">
     <span class="dot"></span><span id="linkText">Offline</span><select id="linkPick" class="hidden"></select>
   </button>
@@ -212,15 +219,77 @@
   let instances = [];  // every Blender that answered
   let bridge = null;   // the one we send to
 
+  // /import needs a token. /pair gives one out only while Blender has a pairing
+  // window open -- the first few minutes after Live Link starts -- so a web page
+  // that loads later cannot get one and cannot push anything into the scene.
+  // Tokens are held per Blender process in clientStorage, which the main thread
+  // owns; these two helpers are the round trip to it.
+  const tokens = {};
+  const tokenWaiters = {};
+
+  function tokenKey(info) { return String(info.pid); }
+
+  function loadToken(key) {
+    if (key in tokens) return Promise.resolve(tokens[key]);
+    if (!tokenWaiters[key]) {
+      tokenWaiters[key] = new Promise((resolve) => {
+        tokenWaiters[key + ':resolve'] = resolve;
+      });
+      parent.postMessage({ pluginMessage: { type: 'token-get', key } }, '*');
+    }
+    return tokenWaiters[key];
+  }
+
+  function storeToken(key, value) {
+    tokens[key] = value;
+    parent.postMessage({ pluginMessage: { type: 'token-set', key, value } }, '*');
+  }
+
+  // Ask Blender for a token. Succeeds only while its pairing window is open.
+  async function pair(info) {
+    try {
+      const res = await fetch(info.url + '/pair', { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body.token) {
+        storeToken(tokenKey(info), body.token);
+        return body.token;
+      }
+      return null;
+    } catch (err) {
+      return null;
+    }
+  }
+
   async function probe(port) {
     const url = 'http://localhost:' + port;
     const stop = new AbortController();
     const timer = setTimeout(() => stop.abort(), SCAN_TIMEOUT);
     try {
-      const res = await fetch(url + '/ping', { signal: stop.signal });
-      if (!res.ok) return null;
-      const info = await res.json();
-      if (info.app !== 'blender') return null;
+      let info = await ping(url, stop.signal, null);
+      if (!info) return null;
+
+      // Unpaired: take the token now if Blender is still offering one, then
+      // ping again so this instance reports its real name and asset folder.
+      if (!info.paired) {
+        const stored = await loadToken(String(info.pid));
+        let token = stored;
+        if (!token && info.pairing_open) token = await pair({ url, pid: info.pid });
+        if (token) {
+          const confirmed = await ping(url, stop.signal, token);
+          if (confirmed && confirmed.paired) {
+            info = confirmed;
+            info.token = token;
+          } else if (info.pairing_open) {
+            // A stored token from a previous Blender run is no use.
+            const fresh = await pair({ url, pid: info.pid });
+            const retry = fresh ? await ping(url, stop.signal, fresh) : null;
+            if (retry && retry.paired) { info = retry; info.token = fresh; }
+          }
+        }
+      } else {
+        info.token = tokens[String(info.pid)] || null;
+      }
+
       info.url = url;
       info.port = info.port || port;
       return info;
@@ -229,6 +298,14 @@
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  async function ping(url, signal, token) {
+    const headers = token ? { 'X-FigBlend-Token': token } : undefined;
+    const res = await fetch(url + '/ping', { signal, headers });
+    if (!res.ok) return null;
+    const info = await res.json();
+    return info.app === 'blender' ? info : null;
   }
 
   async function pingBridge() {
@@ -265,15 +342,20 @@
         linkPick.appendChild(option);
       }
     } else {
-      linkText.textContent = live
-        ? (bridge.blend_saved ? (bridge.blend_name || 'Blender') : 'Unsaved')
-        : 'Offline';
+      linkText.textContent = !live
+        ? 'Offline'
+        : !bridge.paired
+          ? 'Pair'
+          : bridge.blend_saved ? (bridge.blend_name || 'Blender') : 'Unsaved';
     }
 
     linkBtn.title = !live
       ? 'No Blender found on ports ' + BRIDGE_PORTS[0] + '-'
         + BRIDGE_PORTS[BRIDGE_PORTS.length - 1]
         + '. Turn on Live Link in the Figma UI sidebar, then click to rescan.'
+      : !bridge.paired
+        ? 'Blender is listening but not paired with this plugin. Click Re-pair '
+          + 'in its FigBlend panel, then click here to rescan.'
       : !bridge.blend_saved
         ? 'Blender is listening but the .blend is unsaved, so there is nowhere to put ./figAssets. Save it, then rescan.'
         : instances.length > 1
@@ -281,7 +363,7 @@
           : 'Connected to ' + bridge.blend_name + ' on port ' + bridge.port
             + '. Assets go to ' + bridge.asset_dir;
 
-    exportBtn.lastChild.textContent = (live && bridge.blend_saved)
+    exportBtn.lastChild.textContent = (live && bridge.paired && bridge.blend_saved)
       ? ' Send to Blender' : ' Export';
   }
 
@@ -317,6 +399,12 @@
   setMode('vector');
   pingBridge();
 
+  const updateBtn = document.getElementById('update');
+  const updateText = document.getElementById('updateText');
+  updateBtn.onclick = () => {
+    parent.postMessage({ pluginMessage: { type: 'open-release' } }, '*');
+  };
+
   function setStatus(text, isError) {
     statusEl.textContent = text;
     statusEl.className = isError ? 'error' : '';
@@ -341,6 +429,24 @@
     const msg = event.data.pluginMessage;
     if (!msg) return;
 
+    if (msg.type === 'update') {
+      updateText.textContent = msg.version;
+      updateBtn.title = 'FigBlend ' + msg.version + ' is out. Click for the '
+        + 'release page, then unzip the plugin over this folder -- Figma '
+        + 'loads the new files next time it runs.';
+      updateBtn.classList.remove('hidden');
+      return;
+    }
+    if (msg.type === 'token') {
+      tokens[msg.key] = msg.value;
+      const resolve = tokenWaiters[msg.key + ':resolve'];
+      if (resolve) {
+        resolve(msg.value);
+        delete tokenWaiters[msg.key + ':resolve'];
+        delete tokenWaiters[msg.key];
+      }
+      return;
+    }
     if (msg.type === 'progress') {
       setStatus(msg.message);
       return;
@@ -377,16 +483,29 @@
   // Straight into Blender when it is listening, otherwise the usual download.
   // A failed send falls back rather than losing the export.
   async function deliver(zip, filename, stats) {
-    if (bridge && bridge.blend_saved) {
+    if (bridge && bridge.paired && bridge.blend_saved) {
       try {
-        const res = await fetch(bridge.url + '/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/zip', 'X-Bundle-Name': filename },
-          body: zip,
-        });
+        let res = await send(zip, filename, bridge.token);
+        // The token can expire out from under us -- Blender restarted, or Live
+        // Link was stopped and started again. Pair once more and retry before
+        // giving up on the send.
+        if (res.status === 401) {
+          const token = await pair(bridge);
+          if (token) {
+            bridge.token = token;
+            res = await send(zip, filename, token);
+          }
+        }
         const info = await res.json().catch(() => ({}));
         if (res.ok) {
           setStatus('Sent to ' + (bridge.blend_name || 'Blender') + ' — ' + stats);
+          return;
+        }
+        if (res.status === 401) {
+          setStatus('Not paired with Blender — click Re-pair in its FigBlend '
+                    + 'panel, then Export again. Downloaded instead.', true);
+          pingBridge();
+          download(zip, filename);
           return;
         }
         setStatus((info.error || 'Blender refused the bundle.') + ' Downloaded instead.', true);
@@ -399,6 +518,15 @@
     }
     download(zip, filename);
     setStatus(stats);
+  }
+
+  function send(zip, filename, token) {
+    const headers = {
+      'Content-Type': 'application/zip',
+      'X-Bundle-Name': filename,
+    };
+    if (token) headers['X-FigBlend-Token'] = token;
+    return fetch(bridge.url + '/import', { method: 'POST', headers, body: zip });
   }
 
   function download(bytes, filename) {
@@ -493,4 +621,7 @@
     for (const a of arrays) { out.set(a, pos); pos += a.length; }
     return out;
   }
+
+  // Last, so every handler above exists before the main thread starts talking.
+  parent.postMessage({ pluginMessage: { type: 'ui-ready' } }, '*');
 </script>

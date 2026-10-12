@@ -1,0 +1,17 @@
+{
+  "name": "figblend",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Figma plugin and Blender addon for moving UI designs into Blender.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/explainervid-glitch/figblend"
+  },
+  "scripts": {
+    "bump": "node tools/bump.mjs",
+    "package": "node tools/package.mjs",
+    "package:addon": "node tools/package.mjs --addon-only",
+    "package:plugin": "node tools/package.mjs --plugin-only",
+    "build": "npm --prefix figma-plugin run build"
+  }
+}

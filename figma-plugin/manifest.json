@@ -4,7 +4,9 @@
   "api": "1.0.0",
   "main": "dist/code.js",
   "ui": "src/ui.html",
-  "editorType": ["figma"],
+  "editorType": [
+    "figma"
+  ],
   "documentAccess": "dynamic-page",
   "networkAccess": {
     "allowedDomains": [
@@ -15,7 +17,8 @@
       "http://localhost:8791",
       "http://localhost:8792",
       "http://localhost:8793",
-      "http://localhost:8794"
+      "http://localhost:8794",
+      "https://api.github.com"
     ],
     "devAllowedDomains": [
       "http://localhost:8787",
@@ -27,6 +30,6 @@
       "http://localhost:8793",
       "http://localhost:8794"
     ],
-    "reasoning": "Sends the export to the Blender addon listening on your own machine, so you do not have to import the file by hand. Loopback only - nothing ever leaves the computer."
+    "reasoning": "Sends exports to the FigBlend Blender add-on listening on your own machine (localhost), so you do not have to import files by hand. Also asks api.github.com at most once a day whether a newer FigBlend release exists. No design data is sent anywhere but your own computer."
   }
 }

@@ -7,13 +7,23 @@ sends the bundle directly.
 The server binds to 127.0.0.1 only and is off until the user starts it. HTTP
 runs on a worker thread; every Blender API call is deferred to the main thread
 through a timer, because bpy is not thread-safe.
+
+Loopback is not the same as private. Any page in any browser on this machine can
+reach a localhost port, and a Figma plugin's requests carry `Origin: null` --
+indistinguishable from a sandboxed iframe on a hostile site, so there is nothing
+in an origin check worth having. Instead /import needs a token, handed out by
+/pair only while a pairing window is open: the few minutes after the user starts
+Live Link, closed again the moment a client takes it. See `_pair_open`.
 """
 
 import errno
+import hmac
 import json
 import os
+import secrets
 import socket
 import threading
+import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -30,11 +40,23 @@ PORT_SPAN = 8
 
 ASSET_DIR_NAME = "figAssets"
 
+# How long /pair keeps giving out the token after Live Link starts. Long enough
+# to click Export in Figma, short enough that a page opened later cannot pair.
+PAIR_WINDOW = 300.0
+
+# A bundle is a few MB. The cap is only here so a bad or hostile request cannot
+# make Blender read an unbounded body into memory.
+MAX_BUNDLE_BYTES = 256 * 1024 * 1024
+
 _servers = []
 _port = None
 _queue = []
 _lock = threading.Lock()
 _last_result = {"state": "idle", "message": ""}
+
+_token = None
+_pair_deadline = 0.0
+_paired = False
 
 
 # --- paths -------------------------------------------------------------------
@@ -54,6 +76,49 @@ def is_running():
     return bool(_servers)
 
 
+# --- pairing -----------------------------------------------------------------
+
+def _pair_open():
+    """True while /pair will still hand out the token."""
+    return bool(_token) and not _paired and time.monotonic() < _pair_deadline
+
+
+def open_pairing(seconds=PAIR_WINDOW):
+    """Issue a fresh token and start accepting one pairing request.
+
+    Called when Live Link starts, and again by the Re-pair button -- which is
+    the way out if the plugin ever loses its token, or pairs on a machine where
+    something else got there first.
+    """
+    global _token, _pair_deadline, _paired
+    _token = secrets.token_urlsafe(24)
+    _pair_deadline = time.monotonic() + seconds
+    _paired = False
+    return _token
+
+
+def pairing_state():
+    """What the sidebar shows: 'open', 'paired' or 'closed'."""
+    if _paired:
+        return "paired"
+    if _pair_open():
+        return "open"
+    return "closed"
+
+
+def pairing_seconds_left():
+    if not _pair_open():
+        return 0
+    return max(0, int(_pair_deadline - time.monotonic()))
+
+
+def _authenticated(handler):
+    supplied = handler.headers.get("X-FigBlend-Token") or ""
+    if not _token or not supplied:
+        return False
+    return hmac.compare_digest(supplied, _token)
+
+
 # --- HTTP --------------------------------------------------------------------
 
 class _Handler(BaseHTTPRequestHandler):
@@ -65,8 +130,12 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         # The plugin UI is a null-origin iframe, so it needs permissive CORS.
+        # Permissive by necessity: the plugin UI is a null-origin iframe, so
+        # there is no origin to allow-list. The token is what actually gates
+        # anything that touches the file system or the scene.
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Bundle-Name")
+        self.send_header("Access-Control-Allow-Headers",
+                         "Content-Type, X-Bundle-Name, X-FigBlend-Token")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.end_headers()
         self.wfile.write(body)
@@ -78,25 +147,65 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path.rstrip("/") not in ("/ping", ""):
             self._send(404, {"error": "not found"})
             return
-        directory = asset_dir()
-        self._send(200, {
+
+        # Enough for an unpaired client to say "Blender is here, pair with it",
+        # and no more. Which file is open, where it lives on disk and what was
+        # imported last are all none of an unauthenticated caller's business.
+        info = {
             "app": "blender",
             "blender": ".".join(str(v) for v in bpy.app.version),
             "addon": "figblend",
             "blend_saved": bool(bpy.data.filepath),
-            "blend_name": os.path.basename(bpy.data.filepath) or None,
-            "blend_path": bpy.data.filepath or None,
             # Port and pid tell two instances apart even when the .blend files
             # share a name, which they often do across shot folders.
             "port": _port,
             "pid": os.getpid(),
-            "asset_dir": directory,
-            "last": _last_result,
-        })
+            "paired": _authenticated(self),
+            "pairing_open": _pair_open(),
+        }
+        if info["paired"]:
+            info.update({
+                "blend_name": os.path.basename(bpy.data.filepath) or None,
+                "blend_path": bpy.data.filepath or None,
+                "asset_dir": asset_dir(),
+                "last": _last_result,
+            })
+        self._send(200, info)
 
     def do_POST(self):
-        if self.path.rstrip("/") != "/import":
+        route = self.path.rstrip("/")
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+
+        if route == "/pair":
+            self._drain_body(length)
+            self._pair()
+            return
+        if route != "/import":
+            self._drain_body(length)
             self._send(404, {"error": "not found"})
+            return
+
+        if length > MAX_BUNDLE_BYTES:
+            # Not drained: reading it is exactly what we are refusing to do, so
+            # the connection goes instead.
+            self.close_connection = True
+            self._send(413, {"error": "bundle larger than %d MB"
+                                      % (MAX_BUNDLE_BYTES // (1024 * 1024))})
+            return
+
+        # The body is read before any rejection. On a keep-alive connection an
+        # unread body is parsed as the next request, which answers one bad POST
+        # with a 400 and then a 501 and leaves the client with neither.
+        data = self.rfile.read(length) if length > 0 else b""
+
+        if not _authenticated(self):
+            self._send(401, {
+                "error": "Not paired with this Blender.",
+                "pairing_open": _pair_open(),
+            })
             return
 
         directory = asset_dir()
@@ -107,15 +216,10 @@ class _Handler(BaseHTTPRequestHandler):
             })
             return
 
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            length = 0
-        if length <= 0:
+        if not data:
             self._send(400, {"error": "empty body"})
             return
 
-        data = self.rfile.read(length)
         name = self.headers.get("X-Bundle-Name") or "figma-export.zip"
         name = os.path.basename(name) or "figma-export.zip"
         if not name.lower().endswith(".zip"):
@@ -136,6 +240,38 @@ class _Handler(BaseHTTPRequestHandler):
         # The import itself happens on the main thread; report acceptance now.
         self._send(202, {"queued": name, "bytes": len(data), "asset_dir": directory})
 
+    def _drain_body(self, length):
+        """Swallow a request body we are not going to use.
+
+        Anything left in the socket becomes the next request on a keep-alive
+        connection, and the parse failure surfaces as a 400 on a request the
+        client never made.
+        """
+        remaining = min(max(length, 0), MAX_BUNDLE_BYTES)
+        while remaining > 0:
+            chunk = self.rfile.read(min(remaining, 65536))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+
+    def _pair(self):
+        """Hand over the token, once, while the window is open."""
+        global _paired
+        if _authenticated(self):
+            self._send(200, {"token": _token, "already_paired": True})
+            return
+        if not _pair_open():
+            self._send(403, {
+                "error": "Pairing is closed. Click Re-pair in Blender's "
+                         "FigBlend panel, then try again.",
+            })
+            return
+        # Closed on the way out: one pairing per window, so a second caller
+        # cannot quietly take a token for the same session.
+        _paired = True
+        print("[FigBlend] Paired with a client on port %s" % _port)
+        self._send(200, {"token": _token, "already_paired": False})
+
     def log_message(self, *args):
         pass  # Blender's console is noisy enough
 
@@ -154,6 +290,9 @@ class _BridgeOptions:
     collection_mode = "GROUPS"
     geometry_depth = 0.0005
     build_geometry = False
+    # A Live Link send is an iteration on the same frame, so it updates that
+    # frame's collection rather than adding another copy beside it.
+    replace_existing = True
 
     def __init__(self):
         prefs = props.preferences()
@@ -195,7 +334,8 @@ def _drain():
         try:
             collection, report = builder.import_bundle(path, _BridgeOptions())
             _relink_images(os.path.dirname(path))
-            summary = "Imported %d objects from %s" % (
+            summary = "%s %d objects from %s" % (
+                "Updated" if report.replaced else "Imported",
                 report.objects, os.path.basename(path))
             if report.font_notes:
                 summary += " (%d font issue(s))" % len(report.font_notes)
@@ -283,6 +423,7 @@ def start(port=None):
             threading.Thread(target=server.serve_forever, daemon=True).start()
         _servers = made
         _port = candidate
+        open_pairing()
         if not bpy.app.timers.is_registered(_drain):
             bpy.app.timers.register(_drain, persistent=True)
 
@@ -329,7 +470,7 @@ def unregister_handlers():
 
 
 def stop():
-    global _servers, _port
+    global _servers, _port, _token, _paired, _pair_deadline
     if not _servers:
         return False, "Not running"
     for server in _servers:
@@ -340,6 +481,10 @@ def stop():
             pass
     _servers = []
     _port = None
+    # The token dies with the server, so a restart always needs a fresh pairing.
+    _token = None
+    _paired = False
+    _pair_deadline = 0.0
     if bpy.app.timers.is_registered(_drain):
         try:
             bpy.app.timers.unregister(_drain)

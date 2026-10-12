@@ -63,6 +63,24 @@ def _configure_transparency(mat):
     mat.use_backface_culling = False
 
 
+def load_image(path):
+    """Load an image, re-reading it when Blender hands back a cached datablock.
+
+    check_existing matches on the filepath, and every re-export writes the same
+    filenames. Without the reload, the second send of a design renders with the
+    first send's pixels -- the image looks imported, it is just the old one.
+    """
+    before = set(bpy.data.images.keys())
+    image = bpy.data.images.load(path, check_existing=True)
+    if image.name in before:
+        image.reload()
+        if image.packed_file:
+            # The embedded copy is the stale one now; refresh it from the buffer
+            # we just reloaded, or a packed .blend keeps showing the old design.
+            image.pack()
+    return image
+
+
 def create_material(name, image_path=None, color=(1.0, 1.0, 1.0, 1.0),
                     emission_strength=1.0, mode=0.0, uv_transform=None):
     """Build a UI material. `color` is sRGB RGBA straight from the bundle.
@@ -120,7 +138,7 @@ def create_material(name, image_path=None, color=(1.0, 1.0, 1.0, 1.0),
         tex.interpolation = "Cubic"  # UI is viewed close up; Linear shows stair-stepping
         tex.extension = "CLIP"
         try:
-            tex.image = bpy.data.images.load(image_path, check_existing=True)
+            tex.image = load_image(image_path)
             tex.image.alpha_mode = "STRAIGHT"
         except RuntimeError:
             tex.image = None

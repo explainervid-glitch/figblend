@@ -1,0 +1,46 @@
+name: Release
+
+# Push a version tag (v0.3.0) and this builds the Blender extension, the Figma
+# plugin and the extension repository index, then publishes all three as a
+# GitHub release. Blender and the plugin both look at the latest release to
+# find updates, so publishing here is what ships an update.
+#
+# `package.mjs --release` refuses to build if the tag does not match the
+# version in the sources, or if the sources still point at the placeholder
+# repository -- a release that fails here is one that would have pointed users
+# at a broken update.
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: write  # create the release and upload its files
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: figma-plugin/package-lock.json
+
+      - name: Install plugin build tools
+        working-directory: figma-plugin
+        run: npm ci --no-audit --no-fund
+
+      - name: Build and package
+        run: node tools/package.mjs --release
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag \
+            --title "FigBlend ${GITHUB_REF_NAME#v}" \
+            --generate-notes

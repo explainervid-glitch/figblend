@@ -2,7 +2,7 @@
 
 import bpy
 
-from . import bridge, ops, props
+from . import bridge, ops, props, updater
 
 
 class FIGBLEND_PT_panel(bpy.types.Panel):
@@ -15,6 +15,15 @@ class FIGBLEND_PT_panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         settings = context.scene.figblend
+
+        # Only when there is something to act on -- a panel that always reads
+        # "up to date" is a line people learn to skip.
+        update = updater.state()
+        if update["status"] == "available":
+            layout.operator(ops.FIGBLEND_OT_get_update.bl_idname,
+                            text="Update to %s"
+                                 % updater.version_text(update["latest"]),
+                            icon="PACKAGE")
 
         layout.operator(ops.FIGBLEND_OT_import.bl_idname,
                         text="Import Bundle", icon="IMPORT")
@@ -37,8 +46,20 @@ class FIGBLEND_PT_panel(bpy.types.Panel):
             sub.prop(prefs, "live_geometry_depth", text="Thickness")
 
         if running:
-            box.label(text="localhost:%d" % (bridge._port or bridge.PORT),
-                      icon="CHECKMARK")
+            state = bridge.pairing_state()
+            row = box.row(align=True)
+            if state == "paired":
+                row.label(text="localhost:%d paired" % (bridge._port or bridge.PORT),
+                          icon="CHECKMARK")
+            elif state == "open":
+                row.label(text="Pairing open %ds" % bridge.pairing_seconds_left(),
+                          icon="UNLOCKED")
+            else:
+                row.label(text="localhost:%d not paired"
+                               % (bridge._port or bridge.PORT), icon="LOCKED")
+            if state != "open":
+                row.operator(ops.FIGBLEND_OT_repair_link.bl_idname,
+                             text="", icon="FILE_REFRESH")
             last = bridge._last_result
             if last.get("message"):
                 box.label(text=last["message"][:44],

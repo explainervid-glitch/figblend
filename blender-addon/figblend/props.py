@@ -52,6 +52,17 @@ class FigBlendPreferences(bpy.types.AddonPreferences):
         default=0.0005, min=0.00001, soft_max=0.02, precision=5, unit="LENGTH",
     )
 
+    check_updates: bpy.props.BoolProperty(
+        name="Check for Updates",
+        description=(
+            "Once per session, ask GitHub whether a newer FigBlend has been "
+            "released, and say so in the FigBlend panel. Nothing is downloaded "
+            "until you choose to update. Skipped when Blender's online access "
+            "is off"
+        ),
+        default=True,
+    )
+
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "auto_start")
@@ -65,6 +76,30 @@ class FigBlendPreferences(bpy.types.AddonPreferences):
         row = box.row()
         row.enabled = self.live_build_geometry
         row.prop(self, "live_geometry_depth")
+
+        from . import updater
+        box = layout.box()
+        box.label(text="Updates  -  FigBlend %s"
+                       % updater.version_text(updater.installed_version()),
+                  icon="PACKAGE")
+        row = box.row(align=True)
+        row.prop(self, "check_updates")
+        row.operator("figblend.check_update", text="Check Now",
+                     icon="FILE_REFRESH")
+        info = updater.state()
+        if info["message"]:
+            box.label(text=info["message"],
+                      icon="ERROR" if info["status"] == "error" else "INFO")
+        if info["status"] == "available":
+            box.operator("figblend.get_update", icon="IMPORT")
+        source = updater.install_source()
+        if source != "repository":
+            # Without the repository, Blender has nowhere to pull an update
+            # from. Say so here rather than leave the user wondering.
+            box.label(text="Not installed from the FigBlend repository, so "
+                           "updates are manual.", icon="INFO")
+            box.label(text="Add the repository and install from it to "
+                           "update in place.")
 
 
 def preferences():
