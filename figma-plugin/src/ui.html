@@ -20,7 +20,7 @@
   /* Everything visible lives in #app. Its height, not the body's, sizes the
      plugin window: tooltips are absolutely positioned inside it, so they never
      count towards it and the window does not jump when one appears. */
-  #app { display: flex; flex-direction: column; gap: 8px; }
+  #app { position: relative; display: flex; flex-direction: column; gap: 8px; }
 
   header { display: flex; align-items: center; gap: 6px; }
   header .grow { flex: 1; }
@@ -32,28 +32,21 @@
   .iconbtn:hover, .iconbtn.on { color: var(--figma-color-text, #e6e6e6); background: var(--figma-color-bg-secondary, #383838); }
   .iconbtn.alert { color: var(--figma-color-text-danger, #ff9d9d); }
 
-  /* Live-link state, kept to a dot and one word */
+  /* Live-link state in one word; the pill itself turns green when paired */
   .pill {
-    height: 20px; padding: 0 8px; gap: 5px;
+    height: 20px; padding: 0 9px; gap: 4px;
     border-radius: 10px; font-weight: 500;
     background: var(--figma-color-bg-secondary, #383838);
     color: var(--figma-color-text-secondary, #a0a0a0);
   }
-  .dot {
-    width: 6px; height: 6px; border-radius: 50%; flex: none;
-    background: var(--figma-color-text-secondary, #a0a0a0);
-  }
-  .pill.live { color: var(--figma-color-text, #e6e6e6); }
-  .pill.live .dot { background: #14ae5c; }
+  .pill:hover { color: var(--figma-color-text, #e6e6e6); }
+  .pill.found { color: var(--figma-color-text-warning, #f3c11b); }
+  .pill.paired { background: #14ae5c; color: #ffffff; }
+  .pill.paired:hover { background: #129c52; color: #ffffff; }
+  .pill .ic-sm { width: 10px; height: 10px; }
   /* A newer release exists. Present only then, so it reads as news */
   .pill.upd { color: var(--figma-color-text-brand, #0d99ff); }
   .pill.upd:hover { color: var(--figma-color-text, #e6e6e6); }
-  /* Shown only when more than one Blender answers */
-  #linkPick {
-    width: auto; max-width: 120px; height: 16px; padding: 0 2px;
-    border: 0; background: transparent; color: inherit;
-    font: inherit; font-weight: 500; cursor: pointer;
-  }
 
   /* The three output modes are mutually exclusive, so they read as one choice */
   .seg {
@@ -75,26 +68,72 @@
     font-weight: 600;
   }
 
-  /* Scale and quality, side by side */
+  /* Scale takes the room it needs for its label; quality is just its value */
   .opts { position: relative; display: flex; gap: 6px; }
   .field {
-    flex: 1; display: flex; align-items: center; gap: 4px;
-    height: 28px; padding: 0 4px 0 8px; min-width: 0;
+    display: flex; align-items: center; gap: 4px;
+    height: 28px; padding: 0 3px 0 8px; min-width: 0;
     border: 1px solid var(--figma-color-border, rgba(255,255,255,.12));
     border-radius: 6px; cursor: help;
     color: var(--figma-color-text-secondary, #a0a0a0);
   }
+  .field.wide { flex: 1; }
   .field:focus-within { border-color: var(--figma-color-border-selected, #0d99ff); }
-  input[type=number], select {
-    flex: 1; min-width: 0; height: 22px; padding: 0 2px;
-    border: 0; background: transparent;
+  input[type=number] {
+    width: 40px; flex: none; height: 22px; padding: 0 2px;
+    border: 0; background: transparent; text-align: right;
     color: var(--figma-color-text, #e6e6e6);
     font: inherit; font-variant-numeric: tabular-nums; cursor: text;
+    -moz-appearance: textfield;
   }
-  input[type=number] { text-align: right; }
-  select { cursor: pointer; }
-  input[type=number]:focus, select:focus { outline: none; }
-  .unit { flex: none; }
+  /* The browser's own spin arrows ignore the theme; ours replace them */
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number]:focus { outline: none; }
+  .unit { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .stepper { display: flex; flex-direction: column; gap: 1px; flex: none; }
+  .stepper button {
+    width: 16px; height: 10px; padding: 0; border-radius: 3px;
+    background: transparent; color: var(--figma-color-text-secondary, #a0a0a0);
+  }
+  .stepper button:hover {
+    color: var(--figma-color-text, #e6e6e6);
+    background: var(--figma-color-bg-secondary, #383838);
+  }
+  .stepper .ic { width: 10px; height: 10px; stroke-width: 2.5; }
+
+  /* A themed dropdown; the native select opens a system-coloured list */
+  button.dd {
+    height: 22px; padding: 0 4px 0 6px; gap: 4px; border-radius: 4px;
+    background: transparent; color: var(--figma-color-text, #e6e6e6);
+    font-weight: 400; font-variant-numeric: tabular-nums;
+  }
+  button.dd:hover, button.dd.open { background: var(--figma-color-bg-secondary, #383838); }
+  button.dd .ic { width: 11px; height: 11px; color: var(--figma-color-text-secondary, #a0a0a0); }
+
+  .menu {
+    position: absolute; z-index: 40; padding: 4px;
+    display: flex; flex-direction: column; gap: 1px;
+    background: var(--figma-color-bg, #2c2c2c);
+    border: 1px solid var(--figma-color-border, rgba(255,255,255,.12));
+    border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.35);
+  }
+  .menu button {
+    justify-content: space-between; gap: 14px;
+    height: 24px; padding: 0 8px; border-radius: 5px;
+    background: transparent; color: var(--figma-color-text, #e6e6e6);
+    font-weight: 400; white-space: nowrap;
+  }
+  .menu button:hover, .menu button:focus-visible {
+    outline: none; background: var(--figma-color-bg-brand, #0d99ff);
+    color: var(--figma-color-text-onbrand, #ffffff);
+  }
+  .menu button.sel { font-weight: 600; }
+  .menu button em { font-style: normal; opacity: .6; }
+
+  .brand { display: flex; align-items: center; gap: 7px; }
+  .brand img { width: 18px; height: 18px; border-radius: 4px; }
 
   /* Detail lives in tooltips so the panel stays scannable. They stretch to
      the width of the row they belong to, so they cannot run off the edge. */
@@ -159,6 +198,8 @@
   <g id="i-download"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></g>
   <g id="i-info"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></g>
   <g id="i-up"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4"/><path d="M12 16V8"/></g>
+  <g id="i-down"><path d="m6 9 6 6 6-6"/></g>
+  <g id="i-up-chev"><path d="m18 15-6-6-6 6"/></g>
   <g id="i-gear"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></g>
 </defs></svg>
 
@@ -166,7 +207,7 @@
 <!-- No title: Figma's own window bar already names the plugin. -->
 <header>
   <button type="button" class="pill" id="link" title="Check for a running Blender">
-    <span class="dot"></span><span id="linkText">Offline</span><select id="linkPick" class="hidden"></select>
+    <span id="linkText">Offline</span><svg class="ic ic-sm hidden" id="linkMore" viewBox="0 0 24 24"><use href="#i-down"/></svg>
   </button>
   <span class="grow"></span>
   <button type="button" class="pill upd hidden" id="update">
@@ -193,20 +234,21 @@
 </div>
 
 <div class="opts">
-  <label class="field up" data-tip="Pixels per metre. At 1000, a 1440 px frame is 1.44 m wide in Blender.">
+  <label class="field wide up" data-tip="Figma pixels in one Blender metre. At 1000, a 1440 px frame is 1.44 m wide in Blender.">
     <svg class="ic" viewBox="0 0 24 24"><use href="#i-scan"/></svg>
     <input id="pxPerMeter" type="number" value="1000" min="1" step="100" />
-    <span class="unit">px/m</span>
+    <span class="unit">Pixel per Meter</span>
+    <span class="stepper">
+      <button type="button" data-step="1" aria-label="More pixels per meter"><svg class="ic" viewBox="0 0 24 24"><use href="#i-up-chev"/></svg></button>
+      <button type="button" data-step="-1" aria-label="Fewer pixels per meter"><svg class="ic" viewBox="0 0 24 24"><use href="#i-down"/></svg></button>
+    </span>
   </label>
-  <label class="field up" id="qualityTip" data-tip="">
+  <div class="field up" id="qualityTip" data-tip="">
     <svg class="ic" viewBox="0 0 24 24"><use href="#i-image"/></svg>
-    <select id="rasterScale">
-      <option value="1">1× draft</option>
-      <option value="2" selected>2×</option>
-      <option value="3">3×</option>
-      <option value="4">4× close-up</option>
-    </select>
-  </label>
+    <button type="button" class="dd" id="rasterScale" data-value="2" aria-haspopup="listbox">
+      <span id="rasterText">2×</span><svg class="ic" viewBox="0 0 24 24"><use href="#i-down"/></svg>
+    </button>
+  </div>
 </div>
 
 <button id="export">
@@ -215,7 +257,7 @@
 
 <section id="settings" class="hidden">
   <div class="srow">
-    <span id="version" class="ver">FigBlend</span>
+    <span class="brand"><img alt="" src="data:image/png;base64,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"><span id="version" class="ver">FigBlend</span></span>
     <button type="button" id="getAddon" class="ghost">
       <svg class="ic" viewBox="0 0 24 24"><use href="#i-download"/></svg> Blender add-on
     </button>
@@ -235,7 +277,7 @@
   const qualityTip = document.getElementById('qualityTip');
   const linkBtn = document.getElementById('link');
   const linkText = document.getElementById('linkText');
-  const linkPick = document.getElementById('linkPick');
+  const linkMore = document.getElementById('linkMore');
 
   // The Blender addon serves this on loopback when Live Link is on. If it is
   // not there we simply fall back to downloading the .zip, so the plugin works
@@ -362,31 +404,20 @@
 
   function renderLink() {
     const live = !!bridge;
-    linkBtn.classList.toggle('live', live);
-    linkPick.classList.toggle('hidden', instances.length < 2);
-    linkText.classList.toggle('hidden', instances.length > 1);
-
-    if (instances.length > 1) {
-      linkPick.innerHTML = '';
-      for (const info of instances) {
-        const option = document.createElement('option');
-        option.value = String(info.pid);
-        option.textContent = label(info);
-        if (bridge && info.pid === bridge.pid) option.selected = true;
-        linkPick.appendChild(option);
-      }
-    } else {
-      linkText.textContent = !live
-        ? 'Offline'
-        : !bridge.paired
-          ? 'Pair'
-          : bridge.blend_saved ? (bridge.blend_name || 'Blender') : 'Unsaved';
-    }
+    linkBtn.classList.toggle('paired', live && bridge.paired);
+    linkBtn.classList.toggle('found', live && !bridge.paired);
+    // Several Blenders: the pill becomes a picker, marked by its chevron.
+    linkMore.classList.toggle('hidden', instances.length < 2);
+    linkText.textContent = !live
+      ? 'Offline'
+      : !bridge.paired
+        ? 'Pair'
+        : bridge.blend_saved ? label(bridge) : 'Unsaved';
 
     linkBtn.title = !live
       ? 'No Blender found on ports ' + BRIDGE_PORTS[0] + '-'
         + BRIDGE_PORTS[BRIDGE_PORTS.length - 1]
-        + '. Turn on Live Link in the Figma UI sidebar, then click to rescan.'
+        + ". Press Start Live Link in Blender's FigBlend tab, then click to rescan."
       : !bridge.paired
         ? 'Blender is listening but not paired with this plugin. Click Re-pair '
           + 'in its FigBlend panel, then click here to rescan.'
@@ -404,13 +435,109 @@
     noteLinkChange(live);
   }
 
-  linkBtn.onclick = pingBridge;
-  linkPick.onchange = () => {
-    bridge = instances.find((i) => String(i.pid) === linkPick.value) || bridge;
-    renderLink();
+  // --- menus ---------------------------------------------------------------
+  // One themed dropdown for the quality and Blender pickers. It opens inside
+  // the plugin window, which grows to fit it rather than clipping the list.
+  const app = document.getElementById('app');
+  let openMenuState = null;
+
+  function closeMenu() {
+    if (!openMenuState) return;
+    openMenuState.menu.remove();
+    openMenuState.anchor.classList.remove('open');
+    app.style.paddingBottom = '';
+    document.removeEventListener('mousedown', openMenuState.outside, true);
+    document.removeEventListener('keydown', openMenuState.keys, true);
+    openMenuState = null;
+  }
+
+  function openMenu(anchor, options, current, onPick) {
+    if (openMenuState && openMenuState.anchor === anchor) { closeMenu(); return; }
+    closeMenu();
+    const menu = document.createElement('div');
+    menu.className = 'menu';
+    menu.setAttribute('role', 'listbox');
+    for (const option of options) {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.setAttribute('role', 'option');
+      if (String(option.value) === String(current)) item.className = 'sel';
+      const text = document.createElement('span');
+      text.textContent = option.label;
+      item.appendChild(text);
+      if (option.hint) {
+        const hint = document.createElement('em');
+        hint.textContent = option.hint;
+        item.appendChild(hint);
+      }
+      item.onclick = (event) => { event.stopPropagation(); closeMenu(); onPick(option); };
+      menu.appendChild(item);
+    }
+    app.appendChild(menu);
+    const a = anchor.getBoundingClientRect();
+    const box = app.getBoundingClientRect();
+    menu.style.top = (a.bottom - box.top + 4) + 'px';
+    menu.style.minWidth = a.width + 'px';
+    // Right-aligned when that keeps it inside the window, else left-aligned.
+    const left = Math.min(a.left - box.left, box.width - menu.offsetWidth);
+    menu.style.left = Math.max(0, left) + 'px';
+    const overflow = (a.bottom + 4 + menu.offsetHeight) - box.bottom;
+    if (overflow > 0) app.style.paddingBottom = (overflow + 4) + 'px';
+    anchor.classList.add('open');
+    const outside = (event) => {
+      if (!menu.contains(event.target) && !anchor.contains(event.target)) closeMenu();
+    };
+    const keys = (event) => {
+      if (event.key === 'Escape') { closeMenu(); anchor.focus(); }
+    };
+    document.addEventListener('mousedown', outside, true);
+    document.addEventListener('keydown', keys, true);
+    openMenuState = { menu, anchor, outside, keys };
+    (menu.querySelector('.sel') || menu.firstChild).focus();
+  }
+
+  linkBtn.onclick = () => {
+    if (instances.length < 2) { pingBridge(); return; }
+    openMenu(linkBtn,
+      instances.map((info) => ({ value: info.pid, label: label(info) }))
+        .concat([{ value: 'rescan', label: 'Rescan' }]),
+      bridge && bridge.pid,
+      (option) => {
+        if (option.value === 'rescan') { pingBridge(); return; }
+        bridge = instances.find((i) => i.pid === option.value) || bridge;
+        renderLink();
+      });
   };
-  // Clicking the dropdown must not also trigger a rescan on the pill.
-  linkPick.onclick = (event) => event.stopPropagation();
+
+  const rasterBtn = document.getElementById('rasterScale');
+  const rasterText = document.getElementById('rasterText');
+  const RASTER = [
+    { value: 1, label: '1×', hint: 'Draft' },
+    { value: 2, label: '2×' },
+    { value: 3, label: '3×' },
+    { value: 4, label: '4×', hint: 'Close-up' },
+  ];
+  rasterBtn.onclick = (event) => {
+    event.stopPropagation();
+    openMenu(rasterBtn, RASTER, rasterBtn.dataset.value, (option) => {
+      rasterBtn.dataset.value = String(option.value);
+      rasterText.textContent = option.label;
+    });
+  };
+
+  const ppm = document.getElementById('pxPerMeter');
+  for (const button of document.querySelectorAll('.stepper button')) {
+    button.onclick = (event) => {
+      event.preventDefault(); // inside the label, a click would refocus the input
+      const step = Number(ppm.step) || 100;
+      const value = Number(ppm.value) || 1000;
+      // Snap to the step, so 1250 goes to 1300 rather than 1350.
+      const next = Number(button.dataset.step) > 0
+        ? Math.floor(value / step) * step + step
+        : Math.ceil(value / step) * step - step;
+      ppm.value = String(Math.max(Number(ppm.min) || 1, next));
+    };
+  }
 
   // One choice, not two switches: curves and baked planes are mutually
   // exclusive, and raster quality means something different under each --
@@ -519,7 +646,6 @@
   // The window is as tall as its content: no empty space when idle, and a
   // long status or a second Blender in the picker never gets clipped. The
   // main thread owns the window, so the height goes there to be applied.
-  const app = document.getElementById('app');
   const PAD = 20;  // body padding, top and bottom
   new ResizeObserver(() => {
     const height = Math.ceil(app.getBoundingClientRect().height) + PAD;
@@ -531,7 +657,7 @@
     parent.postMessage({ pluginMessage: {
       type: 'export',
       pxPerMeter: Number(document.getElementById('pxPerMeter').value) || 1000,
-      rasterScale: Number(document.getElementById('rasterScale').value) || 2,
+      rasterScale: Number(rasterBtn.dataset.value) || 2,
       mode,
     }}, '*');
   };
