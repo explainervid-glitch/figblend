@@ -8,7 +8,7 @@ schema_version = "1.0.0"
 # version and website are stamped by `npm run bump` -- edit them there.
 
 id = "figblend"
-version = "0.2.3"
+version = "0.2.4"
 name = "FigBlend"
 tagline = "Import Figma UI as editable text, curves and planes"
 maintainer = "tegarfolder"
