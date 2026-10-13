@@ -219,11 +219,11 @@
 </header>
 
 <div class="seg" id="modeSeg">
-  <button type="button" class="on" data-mode="vector"
+  <button type="button" data-mode="vector"
           data-tip="Curves and editable text. Sharp at any distance. Gradients and images become textures.">
     <svg class="ic" viewBox="0 0 24 24"><use href="#i-pen"/></svg> Vector
   </button>
-  <button type="button" data-mode="texvector"
+  <button type="button" class="on" data-mode="texvector"
           data-tip="Curves wearing a render of themselves. Keeps gradients and shadows on real geometry.">
     <svg class="ic" viewBox="0 0 24 24"><use href="#i-image"/></svg> Texturized
   </button>
@@ -542,7 +542,7 @@
   // One choice, not two switches: curves and baked planes are mutually
   // exclusive, and raster quality means something different under each --
   // "affects the icons" versus "is the resolution of everything, text included".
-  let mode = 'vector';
+  let mode = 'texvector';
 
   function setMode(next) {
     mode = next;
@@ -560,7 +560,7 @@
     const btn = event.target.closest('button');
     if (btn) setMode(btn.dataset.mode);
   };
-  setMode('vector');
+  setMode('texvector');
   pingBridge();
 
   const updateBtn = document.getElementById('update');
