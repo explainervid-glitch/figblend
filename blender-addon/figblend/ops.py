@@ -509,13 +509,30 @@ class FIGBLEND_OT_make_geo(bpy.types.Operator):
 
 class FIGBLEND_OT_merge_geo(bpy.types.Operator):
     bl_idname = "figblend.merge_geo"
-    bl_label = "Merge Text"
+    bl_label = "Merge"
     bl_description = (
-        "Move the selected text onto the active Geo Mesh's text section, at the "
-        "same size and position, keeping its thickness. Select the text, then "
-        "the Geo Mesh last so it is active. Flat gives the text back"
+        "Move the selected text and/or icon onto the active Geo Mesh -- text "
+        "into its text section, a shape or image into its icon section -- at "
+        "the same size and position, keeping their thickness. Select them, then "
+        "the Geo Mesh last so it is active. Flat gives them back"
     )
     bl_options = {"REGISTER", "UNDO"}
+
+    @staticmethod
+    def _split(context, target):
+        """(texts, icons) among the selection, apart from the Geo Mesh itself."""
+        texts, icons = [], []
+        for obj in context.selected_objects:
+            if obj is target or obj.get(geo.GEO_KEY):
+                continue
+            if obj.type == "FONT":
+                texts.append(obj)
+            elif obj.type in {"CURVE", "MESH"}:
+                # A path of a multi-path shape stands for the whole shape.
+                root = obj.parent if obj.get("figblend_part") and obj.parent else obj
+                if root not in icons:
+                    icons.append(root)
+        return texts, icons
 
     @classmethod
     def poll(cls, context):
@@ -523,26 +540,30 @@ class FIGBLEND_OT_merge_geo(bpy.types.Operator):
         if active is None or geo.find_modifier(active) is None:
             cls.poll_message_set("Make the active object a Geo Mesh first")
             return False
-        if not any(o.type == "FONT" and o is not active for o in context.selected_objects):
-            cls.poll_message_set("Also select the text to merge")
+        texts, icons = cls._split(context, active)
+        if not (texts or icons):
+            cls.poll_message_set("Also select the text or icon to merge")
             return False
         return True
 
     def execute(self, context):
         target = context.view_layer.objects.active
-        texts = [o for o in context.selected_objects if o.type == "FONT" and o is not target]
-        if len(texts) > 1:
-            self.report({"ERROR"}, "Select one text -- a Geo Mesh shows a single label")
+        texts, icons = self._split(context, target)
+        if len(texts) > 1 or len(icons) > 1:
+            self.report({"ERROR"},
+                        "Select at most one text and one icon -- a Geo Mesh shows one of each")
             return {"CANCELLED"}
-        text = texts[0]
+        text = texts[0] if texts else None
+        icon = icons[0] if icons else None
         try:
-            geo.merge_text(target, text)
+            geo.merge(target, text=text, icon=icon)
         except ValueError as err:
             self.report({"ERROR"}, str(err))
             return {"CANCELLED"}
         for obj in context.selected_objects:
             obj.select_set(obj is target)
-        self.report({"INFO"}, "Merged '%s' into '%s'" % (text.name, target.name))
+        merged = " and ".join("'%s'" % o.name for o in (text, icon) if o is not None)
+        self.report({"INFO"}, "Merged %s into '%s'" % (merged, target.name))
         return {"FINISHED"}
 
 

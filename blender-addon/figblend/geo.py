@@ -271,22 +271,15 @@ def make(root, group, height=0.0, carry_content=True, density=32):
     put("Cursor Slot", 3)
     put("Icon Slot", 4)
 
-    bpy.context.view_layer.update()
-    to_local = obj.matrix_world.inverted()
-    centre_world = obj.matrix_world @ Vector((cx, cy, z))
-
     put("Show Text", False)
     if text is not None:
         apply_text(obj, modifier, items, text)
 
-    put("Show Icon", icon is not None)
+    put("Show Icon", False)
+    icon_depth = None
     if icon is not None:
-        ic, isize = _world_box(icon)
-        put("Icon Object", icon)
-        if isize is not None:
-            put("Icon Size", max(isize.x, isize.y))
-            offset = to_local @ ic - to_local @ centre_world
-            put("Icon Position", (offset.x, offset.y))
+        icon_depth = _prepare_icon(icon)
+        apply_icon(obj, modifier, items, icon)
 
     # Children the button does not absorb stay where they are, now hanging off
     # the rebuild so moving it still moves them.
@@ -300,8 +293,10 @@ def make(root, group, height=0.0, carry_content=True, density=32):
     obj.update_tag()
     _lift_relief(obj, modifier, items, {
         "Text Depth": text.get("figblend_depth") if text is not None else None,
-        "Icon Depth": None,
+        "Icon Depth": icon_depth,
     })
+    if icon is not None:
+        _settle_icon(obj, icon, icon_depth)
 
     replaced = [root] + [o for o in (text, icon) if o is not None]
     for original in replaced:
@@ -387,6 +382,118 @@ def apply_text(obj, modifier, items, text):
     obj["figblend_geo_text"] = text.name
 
 
+ICON_COLLECTION_KEY = "figblend_geo_icon_collection"
+
+
+def apply_icon(obj, modifier, items, icon):
+    """Put a shape onto the group's icon section.
+
+    A single-path shape goes in as the Icon Object. One that FigBlend imported
+    as several paths (a fill plus an outlined stroke, say) goes in as an Icon
+    Collection, or only its first path would show. That collection is not
+    linked to the scene; the group still reads it, hidden paths included.
+    """
+    put = lambda name, value: set_input(modifier, items, name, value)
+    _release_icon_collection(obj)
+
+    parts = builder.thickness_targets(icon)
+    if len(parts) > 1 and "Icon Collection" in items:
+        holder = bpy.data.collections.new("%s Icon" % icon.name)
+        for part in parts:
+            holder.objects.link(part)
+        put("Icon Object", None)
+        put("Icon Collection", holder)
+        obj[ICON_COLLECTION_KEY] = holder.name
+    else:
+        put("Icon Collection", None)
+        put("Icon Object", icon)
+
+    put("Show Icon", True)
+    bpy.context.view_layer.update()
+    cx, cy, _z = _plane(obj)
+    centre, size = _world_box(icon)
+    if centre is not None:
+        # The group fits the icon so its longest side equals Icon Size.
+        put("Icon Size", max(size.x, size.y))
+        local = obj.matrix_world.inverted() @ centre
+        put("Icon Position", (local.x - cx, local.y - cy))
+
+    material = _first_material(icon)
+    slot = int(get_input(modifier, items, "Icon Slot", 4) or 4)
+    if material is not None:
+        while len(obj.material_slots) < slot:
+            obj.data.materials.append(material)
+        obj.material_slots[slot - 1].material = material
+    obj["figblend_geo_icon"] = icon.name
+
+
+HELD_DEPTH_KEY = "figblend_geo_depth"
+
+
+def _prepare_icon(icon):
+    """Hand the group a flat icon, remembering the thickness it had.
+
+    The group extrudes flat paths by Icon Depth, but a shape that already has
+    Build 3D reaches it as a solid mesh, which it can only use as-is -- seated
+    half a millimetre into the body, so it shows thinner than it was. Flat
+    paths get extruded by the full amount instead. Meshes cannot be, so those
+    are corrected after the fact in _settle_icon.
+    """
+    # Already merged once: the remembered thickness is the real one.
+    depth = icon.get(HELD_DEPTH_KEY) or icon.get("figblend_depth")
+    if not depth:
+        return None
+    icon[HELD_DEPTH_KEY] = depth
+    if icon.type in builder.CURVE_TYPES:
+        builder.clear_thickness(icon)
+    return depth
+
+
+def _settle_icon(obj, icon, depth):
+    """Make a mesh icon stand `depth` proud of the face, as it did before.
+
+    A mesh reaches the group with its own thickness, sunk into the body. Grow
+    that thickness by however much is hidden, measured on the result.
+    """
+    if not depth or icon.type != "MESH":
+        return
+    modifier = find_modifier(obj)
+    items = _input_items(modifier.node_group)
+    slot = int(get_input(modifier, items, "Icon Slot", 4) or 4) - 1
+    height = get_input(modifier, items, "Height", 0.0) or 0.0
+    top = _plane(obj)[2] + height
+    bpy.context.view_layer.update()
+    evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    mesh = evaluated.to_mesh()
+    try:
+        zs = [mesh.vertices[i].co.z for p in mesh.polygons if p.material_index == slot
+              for i in p.vertices]
+    finally:
+        evaluated.to_mesh_clear()
+    if not zs:
+        return
+    shortfall = depth - (max(zs) - top)
+    if abs(shortfall) > 1e-7:
+        builder.apply_thickness(icon, icon.get("figblend_depth", depth) + shortfall)
+        obj.update_tag()
+
+
+def _give_back(original):
+    """Undo what merging did to an object: show it, restore its thickness."""
+    _hide(original, False)
+    held = original.get(HELD_DEPTH_KEY)
+    if held:
+        builder.apply_thickness(original, held)
+        del original[HELD_DEPTH_KEY]
+
+
+def _release_icon_collection(obj):
+    holder = bpy.data.collections.get(obj.get(ICON_COLLECTION_KEY, ""))
+    if holder is not None:
+        bpy.data.collections.remove(holder)  # its objects keep their own collections
+    obj.pop(ICON_COLLECTION_KEY, None)
+
+
 def _lift_relief(obj, modifier, items, reliefs):
     """Make text and icon stand proud of the button face by a set amount.
 
@@ -441,33 +548,50 @@ def _lift_relief(obj, modifier, items, reliefs):
         obj.update_tag()
 
 
-def merge_text(obj, text):
-    """Move a separate text object onto an existing Geo Mesh's text section.
+def merge(obj, text=None, icon=None):
+    """Move a separate text and/or icon onto an existing Geo Mesh.
 
-    Size and position come from the text as it is; its thickness from Build
-    3D if it has one. A text merged earlier is given back, since the button
-    can show only one, and Flat restores this one too.
+    Size and position come from each object as it is; thickness from its
+    Build 3D depth if it has one. The button shows one text and one icon, so
+    whatever held that place before is given back. Flat restores these too.
     """
     modifier = find_modifier(obj)
     if modifier is None:
         raise ValueError("'%s' has no geometry node group with a text section. "
                          "Make it a Geo Mesh first." % obj.name)
     items = _input_items(modifier.node_group)
+    if icon is not None and "Show Icon" not in items:
+        raise ValueError("'%s' has no icon section." % modifier.node_group.name)
 
-    previous = bpy.data.objects.get(obj.get("figblend_geo_text", ""))
     sources = list(obj.get(SOURCES_KEY, []))
-    if previous is not None and previous is not text and previous.name in sources:
-        _hide(previous, False)
-        sources.remove(previous.name)
 
-    apply_text(obj, modifier, items, text)
+    def swap(key, incoming):
+        previous = bpy.data.objects.get(obj.get(key, ""))
+        if previous is not None and previous is not incoming and previous.name in sources:
+            _give_back(previous)
+            sources.remove(previous.name)
+
+    reliefs = {}
+    if text is not None:
+        swap("figblend_geo_text", text)
+        apply_text(obj, modifier, items, text)
+        reliefs["Text Depth"] = text.get("figblend_depth")
+    if icon is not None:
+        swap("figblend_geo_icon", icon)
+        icon_depth = _prepare_icon(icon)
+        apply_icon(obj, modifier, items, icon)
+        reliefs["Icon Depth"] = icon_depth
+
     obj.update_tag()
-    _lift_relief(obj, modifier, items, {"Text Depth": text.get("figblend_depth")})
+    _lift_relief(obj, modifier, items, reliefs)
+    if icon is not None:
+        _settle_icon(obj, icon, reliefs.get("Icon Depth"))
 
-    if text.name not in sources:
-        text["figblend_geo_hidden_render"] = text.hide_render
-        _hide(text, True)
-        sources.append(text.name)
+    for incoming in (text, icon):
+        if incoming is not None and incoming.name not in sources:
+            incoming["figblend_geo_hidden_render"] = incoming.hide_render
+            _hide(incoming, True)
+            sources.append(incoming.name)
     obj[SOURCES_KEY] = sources
     return modifier
 
@@ -495,11 +619,12 @@ def restore(obj):
     for name in obj.get(SOURCES_KEY, []):
         original = bpy.data.objects.get(name)
         if original is not None:
-            _hide(original, False)
+            _give_back(original)
     for child in [c for c in obj.children]:
         world = child.matrix_world.copy()
         child.parent = root
         child.matrix_world = world
+    _release_icon_collection(obj)
     mesh = obj.data
     bpy.data.objects.remove(obj)
     if mesh is not None and mesh.users == 0:
