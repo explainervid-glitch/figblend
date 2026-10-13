@@ -500,6 +500,8 @@ class FIGBLEND_OT_make_geo(bpy.types.Operator):
             obj.select_set(True)
         context.view_layer.objects.active = made[0]
 
+        for note in geo.take_notes():
+            self.report({"INFO"}, note)
         message = "Rebuilt %d element(s) with '%s'" % (len(made), group.name)
         if skipped:
             message += ", skipped %d" % len(skipped)
@@ -564,6 +566,8 @@ class FIGBLEND_OT_merge_geo(bpy.types.Operator):
             obj.select_set(obj is target)
         merged = " and ".join("'%s'" % o.name for o in (text, icon) if o is not None)
         self.report({"INFO"}, "Merged %s into '%s'" % (merged, target.name))
+        for note in geo.take_notes():
+            self.report({"INFO"}, note)
         return {"FINISHED"}
 
 

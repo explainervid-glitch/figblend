@@ -349,6 +349,73 @@ def _proportional(items, name, height):
     return height * item.default_value / default_height
 
 
+_notes = []
+
+
+def take_notes():
+    """Messages for the operator to report: changes made to a node group."""
+    notes = list(_notes)
+    _notes.clear()
+    return notes
+
+
+SPACING_INPUTS = {
+    "Character Spacing": "Extra space between letters, as a text object's "
+                         "Character Spacing (1 = the font's own)",
+    "Line Spacing": "Distance between lines, as a text object's Line Spacing",
+}
+
+
+def ensure_spacing_inputs(group, wanted):
+    """Expose String to Curves spacing on the group, so a merged text keeps it.
+
+    Adds each input in `wanted` that the group lacks, defaulted to the value
+    its String to Curves nodes already use -- so every existing button looks
+    exactly as before -- and wires it to all of them. A group can lay text out
+    twice (Button Custom does, once more to place the typing cursor), and both
+    must agree or the cursor drifts off the letters.
+
+    Leaves a socket alone if the group's author already drives it themselves.
+    Returns the names it added.
+    """
+    nodes = [n for n in group.nodes if n.bl_idname == "GeometryNodeStringToCurves"]
+    if not nodes:
+        return []
+    have = _input_items(group)
+    panel = next((item for item in group.interface.items_tree
+                  if item.item_type == "PANEL" and item.name == "Text"), None)
+    added = []
+    for name in wanted:
+        if name in have:
+            continue
+        sockets = [n.inputs[name] for n in nodes if name in n.inputs]
+        if not sockets or any(s.is_linked for s in sockets):
+            continue
+        current = sockets[0].default_value
+        if any(abs(s.default_value - current) > 1e-6 for s in sockets):
+            continue  # the copies disagree on purpose; not ours to unify
+        socket = group.interface.new_socket(
+            name=name, description=SPACING_INPUTS[name], in_out="INPUT",
+            socket_type="NodeSocketFloat", parent=panel)
+        socket.default_value = current
+        socket.min_value = 0.0
+        socket.max_value = 10.0
+        for node, target in zip(nodes, sockets):
+            source = group.nodes.new("NodeGroupInput")
+            source.label = name
+            source.parent = node.parent
+            source.location = (node.location.x - 220, node.location.y - 260 - 40 * len(added))
+            group.links.new(source.outputs[name], target)
+            for output in source.outputs:
+                if output.name != name and not output.is_linked:
+                    output.hide = True
+        added.append(name)
+    if added:
+        _notes.append("Added %s to '%s' so merged text keeps its spacing"
+                      % (" and ".join(added), group.name))
+    return added
+
+
 def apply_text(obj, modifier, items, text):
     """Put a Blender text object onto the group's text section.
 
@@ -362,9 +429,20 @@ def apply_text(obj, modifier, items, text):
     put("Text", text.data.body)
     put("Font", _font_of(text))
     put("Text Size", text.data.size * text.matrix_world.to_scale().x)
-    # Only when the group exposes them; "Button Custom" does not.
-    put("Character Spacing", text.data.space_character)
-    put("Line Spacing", text.data.space_line)
+
+    # Spacing only matters when it changes the result: letter spacing that is
+    # not the font's own, or line spacing on text with more than one line.
+    # Only then is the group given the inputs to carry it.
+    data = text.data
+    needed = []
+    if abs(data.space_character - 1.0) > 1e-6:
+        needed.append("Character Spacing")
+    if "\n" in data.body and abs(data.space_line - 1.0) > 1e-6:
+        needed.append("Line Spacing")
+    if needed and ensure_spacing_inputs(modifier.node_group, needed):
+        items.update(_input_items(modifier.node_group))
+    put("Character Spacing", data.space_character)
+    put("Line Spacing", data.space_line)
 
     bpy.context.view_layer.update()
     cx, cy, z = _plane(obj)
