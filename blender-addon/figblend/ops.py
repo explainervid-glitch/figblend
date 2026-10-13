@@ -507,6 +507,45 @@ class FIGBLEND_OT_make_geo(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class FIGBLEND_OT_merge_geo(bpy.types.Operator):
+    bl_idname = "figblend.merge_geo"
+    bl_label = "Merge Text"
+    bl_description = (
+        "Move the selected text onto the active Geo Mesh's text section, at the "
+        "same size and position, keeping its thickness. Select the text, then "
+        "the Geo Mesh last so it is active. Flat gives the text back"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        active = context.view_layer.objects.active
+        if active is None or geo.find_modifier(active) is None:
+            cls.poll_message_set("Make the active object a Geo Mesh first")
+            return False
+        if not any(o.type == "FONT" and o is not active for o in context.selected_objects):
+            cls.poll_message_set("Also select the text to merge")
+            return False
+        return True
+
+    def execute(self, context):
+        target = context.view_layer.objects.active
+        texts = [o for o in context.selected_objects if o.type == "FONT" and o is not target]
+        if len(texts) > 1:
+            self.report({"ERROR"}, "Select one text -- a Geo Mesh shows a single label")
+            return {"CANCELLED"}
+        text = texts[0]
+        try:
+            geo.merge_text(target, text)
+        except ValueError as err:
+            self.report({"ERROR"}, str(err))
+            return {"CANCELLED"}
+        for obj in context.selected_objects:
+            obj.select_set(obj is target)
+        self.report({"INFO"}, "Merged '%s' into '%s'" % (text.name, target.name))
+        return {"FINISHED"}
+
+
 class FIGBLEND_OT_select_relight(bpy.types.Operator):
     bl_idname = "figblend.select_relight"
     bl_label = "Select Shapes Needing Light"
@@ -638,6 +677,7 @@ classes = (
     FIGBLEND_OT_build_geometry,
     FIGBLEND_OT_flatten_geometry,
     FIGBLEND_OT_make_geo,
+    FIGBLEND_OT_merge_geo,
     FIGBLEND_OT_select_relight,
     FIGBLEND_OT_toggle_bridge,
     FIGBLEND_OT_repair_link,

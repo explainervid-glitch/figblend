@@ -122,8 +122,9 @@ class FIGBLEND_PT_selection(bpy.types.Panel):
                      text="Flat", icon="MESH_PLANE")
 
         row = _labeled_row(layout, "Deformable")
-        row.operator(ops.FIGBLEND_OT_make_geo.bl_idname,
-                     text="Geo Mesh", icon="GEOMETRY_NODES")
+        # No icons: a sidebar at its usual width cuts "Geo Mesh" short otherwise.
+        row.operator(ops.FIGBLEND_OT_make_geo.bl_idname, text="Geo Mesh")
+        row.operator(ops.FIGBLEND_OT_merge_geo.bl_idname, text="Merge")
 
         row = _labeled_row(layout, "Shadows")
         row.operator(ops.FIGBLEND_OT_set_shadow.bl_idname,

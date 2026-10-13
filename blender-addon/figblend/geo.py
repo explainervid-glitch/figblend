@@ -275,15 +275,9 @@ def make(root, group, height=0.0, carry_content=True, density=32):
     to_local = obj.matrix_world.inverted()
     centre_world = obj.matrix_world @ Vector((cx, cy, z))
 
-    put("Show Text", text is not None)
+    put("Show Text", False)
     if text is not None:
-        put("Text", text.data.body)
-        put("Font", _font_of(text))
-        put("Text Size", text.data.size * text.matrix_world.to_scale().x)
-        tc, _size = _world_box(text)
-        if tc is not None:
-            offset = to_local @ tc - to_local @ centre_world
-            put("Text Offset", (offset.x, offset.y))
+        apply_text(obj, modifier, items, text)
 
     put("Show Icon", icon is not None)
     if icon is not None:
@@ -304,7 +298,10 @@ def make(root, group, height=0.0, carry_content=True, density=32):
     # Inputs set through modifier.properties do not notify the depsgraph, so
     # without this the object keeps its first evaluation: no text, no icon.
     obj.update_tag()
-    _lift_relief(obj, modifier, items, z + depth, depth)
+    _lift_relief(obj, modifier, items, {
+        "Text Depth": text.get("figblend_depth") if text is not None else None,
+        "Icon Depth": None,
+    })
 
     replaced = [root] + [o for o in (text, icon) if o is not None]
     for original in replaced:
@@ -318,19 +315,95 @@ def make(root, group, height=0.0, carry_content=True, density=32):
     return obj
 
 
-def _lift_relief(obj, modifier, items, top, depth):
-    """Make text and icon stand proud of the button face.
+def find_modifier(obj):
+    """The geometry nodes modifier on `obj` whose group has a text section."""
+    for modifier in getattr(obj, "modifiers", []):
+        if (modifier.type == "NODES" and modifier.node_group is not None
+                and "Text" in _input_items(modifier.node_group)):
+            return modifier
+    return None
+
+
+def get_input(modifier, items, name, fallback=None):
+    item = items.get(name)
+    if item is None:
+        return fallback
+    props = getattr(modifier, "properties", None)
+    inputs = getattr(props, "inputs", None) if props is not None else None
+    if inputs is not None:
+        return getattr(inputs, item.identifier).value
+    return modifier.get(item.identifier, getattr(item, "default_value", fallback))
+
+
+def _plane(obj):
+    """Centre (x, y) and z of the flat input mesh the group grows from."""
+    verts = obj.data.vertices if obj.type == "MESH" else []
+    if not len(verts):
+        return 0.0, 0.0, 0.0
+    xs = [v.co.x for v in verts]
+    ys = [v.co.y for v in verts]
+    return (max(xs) + min(xs)) / 2.0, (max(ys) + min(ys)) / 2.0, min(v.co.z for v in verts)
+
+
+def _proportional(items, name, height):
+    """A relief value in the group author's proportion to the button height."""
+    item, height_item = items.get(name), items.get("Height")
+    default_height = getattr(height_item, "default_value", 0.0)
+    if item is None or not default_height:
+        return None
+    return height * item.default_value / default_height
+
+
+def apply_text(obj, modifier, items, text):
+    """Put a Blender text object onto the group's text section.
+
+    Size is the text's own: FigBlend already sized it to Figma's, and the
+    group draws text through the same font machinery, so the number carries
+    over unchanged. Position is the text's centre relative to the button's,
+    which holds whatever its alignment. Colour goes into the text slot.
+    """
+    put = lambda name, value: set_input(modifier, items, name, value)
+    put("Show Text", True)
+    put("Text", text.data.body)
+    put("Font", _font_of(text))
+    put("Text Size", text.data.size * text.matrix_world.to_scale().x)
+    # Only when the group exposes them; "Button Custom" does not.
+    put("Character Spacing", text.data.space_character)
+    put("Line Spacing", text.data.space_line)
+
+    bpy.context.view_layer.update()
+    cx, cy, z = _plane(obj)
+    centre, _size = _world_box(text)
+    if centre is not None:
+        local = obj.matrix_world.inverted() @ centre
+        put("Text Offset", (local.x - cx, local.y - cy))
+
+    material = _first_material(text)
+    slot = int(get_input(modifier, items, "Text Slot", 2) or 2)
+    if material is not None:
+        while len(obj.material_slots) < slot:
+            obj.data.materials.append(material)
+        obj.material_slots[slot - 1].material = material
+    obj["figblend_geo_text"] = text.name
+
+
+def _lift_relief(obj, modifier, items, reliefs):
+    """Make text and icon stand proud of the button face by a set amount.
+
+    `reliefs` maps "Text Depth" / "Icon Depth" to how far each should rise
+    above the face, or None for the group author's proportion of the height.
 
     A group can seat its relief into the body by a fixed distance so it never
     floats -- "Button Custom" uses half a millimetre. Fine on a 30 cm button;
-    at UI scale that is deeper than the whole scaled relief, so the label ends
-    up buried. Measure how far each one sinks below the top face and add that
-    to its depth, so what shows above the surface keeps the group's proportions.
+    at UI scale that is deeper than the whole relief, so the label ends up
+    buried. Measure how far each one sinks below the top face and add it on.
     """
-    slots = {"Text Depth": ("Text Slot", "Text Bevel"), "Icon Depth": ("Icon Slot", "Icon Bevel")}
-    default_height = getattr(items.get("Height"), "default_value", 0.0)
-    if not default_height:
-        return
+    pairs = {"Text Depth": ("Text Slot", "Text Bevel", 2),
+             "Icon Depth": ("Icon Slot", "Icon Bevel", 4)}
+    height = get_input(modifier, items, "Height", 0.0) or 0.0
+    _cx, _cy, base = _plane(obj)
+    top = base + height
+
     bpy.context.view_layer.update()
     evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
     mesh = evaluated.to_mesh()
@@ -345,20 +418,58 @@ def _lift_relief(obj, modifier, items, top, depth):
         evaluated.to_mesh_clear()
 
     changed = False
-    for depth_name, (slot_name, _bevel) in slots.items():
-        depth_item, slot_item = items.get(depth_name), items.get(slot_name)
-        if depth_item is None or slot_item is None:
+    for depth_name, (slot_name, bevel_name, default_slot) in pairs.items():
+        if depth_name not in reliefs or items.get(depth_name) is None:
             continue
-        index = int(slot_item.default_value) - 1
+        index = int(get_input(modifier, items, slot_name, default_slot) or default_slot) - 1
         if index not in lowest:
             continue  # nothing of this kind on the button
-        sink = top - lowest[index]
-        if sink > 1e-6:
-            relief = depth * depth_item.default_value / default_height
-            set_input(modifier, items, depth_name, relief + sink)
-            changed = True
+        relief = reliefs[depth_name]
+        if not relief:
+            relief = _proportional(items, depth_name, height)
+        if not relief:
+            continue
+        sink = max(0.0, top - lowest[index])
+        set_input(modifier, items, depth_name, relief + sink)
+        # Keep the bevel inside the relief, in the group's own ratio.
+        depth_item, bevel_item = items.get(depth_name), items.get(bevel_name)
+        if bevel_item is not None and depth_item.default_value:
+            set_input(modifier, items, bevel_name,
+                      relief * bevel_item.default_value / depth_item.default_value)
+        changed = True
     if changed:
         obj.update_tag()
+
+
+def merge_text(obj, text):
+    """Move a separate text object onto an existing Geo Mesh's text section.
+
+    Size and position come from the text as it is; its thickness from Build
+    3D if it has one. A text merged earlier is given back, since the button
+    can show only one, and Flat restores this one too.
+    """
+    modifier = find_modifier(obj)
+    if modifier is None:
+        raise ValueError("'%s' has no geometry node group with a text section. "
+                         "Make it a Geo Mesh first." % obj.name)
+    items = _input_items(modifier.node_group)
+
+    previous = bpy.data.objects.get(obj.get("figblend_geo_text", ""))
+    sources = list(obj.get(SOURCES_KEY, []))
+    if previous is not None and previous is not text and previous.name in sources:
+        _hide(previous, False)
+        sources.remove(previous.name)
+
+    apply_text(obj, modifier, items, text)
+    obj.update_tag()
+    _lift_relief(obj, modifier, items, {"Text Depth": text.get("figblend_depth")})
+
+    if text.name not in sources:
+        text["figblend_geo_hidden_render"] = text.hide_render
+        _hide(text, True)
+        sources.append(text.name)
+    obj[SOURCES_KEY] = sources
+    return modifier
 
 
 def _hide(obj, hidden):
