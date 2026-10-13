@@ -673,7 +673,6 @@ def build_text(node, ctx):
 
     curve = bpy.data.curves.new(name=node.get("name", "Text"), type="FONT")
     curve.body = text.get("characters", "")
-    curve.size = size * scale
 
     font, note = fonts.load(
         text["font"]["family"], text["font"]["style"],
@@ -684,23 +683,50 @@ def build_text(node, ctx):
     if note:
         ctx["report"].font_notes.add(note)
 
+    # Figma's size is the em; Blender's covers the font's whole bounding box,
+    # which is bigger by a per-font factor -- 1.33 for Nunito. Set Figma's
+    # number directly and every text comes out about a quarter too small.
+    metrics = fonts.metrics(curve.font)
+    em = size * scale
+    curve.size = em * (metrics.size_factor if metrics else 1.0)
+
     curve.align_x = ALIGN_X.get(text.get("align_horizontal", "LEFT"), "LEFT")
     curve.align_y = ALIGN_Y.get(text.get("align_vertical", "TOP"), "TOP")
 
-    # Blender has no absolute tracking, only a multiple of the space width.
+    # Blender adds (space_character - 1) * size / 2 between every pair of
+    # characters, whatever the glyphs -- a true tracking value, so Figma's
+    # pixels convert exactly once the size is Blender's own.
     letter_spacing = text.get("letter_spacing") or {}
-    if letter_spacing.get("unit") == "PIXELS" and size:
-        curve.space_character = 1.0 + (letter_spacing.get("value", 0.0) / size)
+    if letter_spacing.get("unit") == "PIXELS" and letter_spacing.get("value"):
+        tracking = letter_spacing["value"] * scale
+        curve.space_character = 1.0 + 2.0 * tracking / curve.size
 
+    # Blender advances lines by space_line * size, its size again. Figma's Auto
+    # line height is the font's own ascent + descent + gap.
     line_height = text.get("line_height") or {}
-    if line_height.get("unit") == "PIXELS" and size:
-        curve.space_line = line_height.get("value", size) / size
+    line_pitch = None
+    if line_height.get("unit") == "PIXELS" and line_height.get("value"):
+        line_pitch = line_height["value"] * scale
+    elif metrics is not None:
+        line_pitch = (metrics.ascent - metrics.descent + metrics.line_gap) * em
+    if line_pitch:
+        curve.space_line = line_pitch / curve.size
 
     obj = bpy.data.objects.new(node.get("name", "Text"), curve)
 
     # Anchor is resolved by the exporter to match align_x/align_y exactly.
     anchor = text.get("anchor") or node["transform"]["center"]
     obj.location = _place(anchor, node, ctx)
+
+    # A fixed line height wider than the font's own centres each line in its
+    # box, as CSS does. Blender's TOP and BOTTOM sit the glyphs against the
+    # edge instead, so move them in by that half-leading.
+    if metrics is not None and line_height.get("unit") == "PIXELS" and line_pitch:
+        half_leading = (line_pitch - (metrics.ascent - metrics.descent) * em) / 2.0
+        if curve.align_y == "TOP":
+            obj.location.y -= half_leading
+        elif curve.align_y == "BOTTOM":
+            obj.location.y += half_leading
     obj.rotation_euler.z = math.radians(node["transform"].get("rotation", 0.0))
     _link(obj, ctx)
 

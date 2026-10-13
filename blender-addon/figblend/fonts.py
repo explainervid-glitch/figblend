@@ -140,6 +140,75 @@ def _read_font_info(path):
     return family, subfamily, is_variable
 
 
+# --- metrics -----------------------------------------------------------------
+# Figma's font size is the em. Blender's is not: it scales a font so that the
+# font's whole bounding box -- tallest accent to deepest descender, from the
+# head table -- equals the size. For a typical font that box is 1.2 to 1.4 em,
+# so text set to Figma's number renders 25-30% small, by a different amount
+# for every font. These numbers let the importer convert exactly.
+
+FontMetrics = collections.namedtuple(
+    "FontMetrics",
+    # size_factor: Blender text size per em.
+    # ascent, descent, line_gap: in ems, descent negative (the hhea values,
+    # which is what both FreeType and Figma's Auto line height use).
+    "size_factor ascent descent line_gap")
+
+_metrics = {}
+
+
+def _metrics_from_bytes(data):
+    offset = 0
+    if data[:4] == b"ttcf":
+        offset = struct.unpack(">I", data[12:16])[0]
+    try:
+        num_tables = struct.unpack(">H", data[offset + 4:offset + 6])[0]
+        tables = {}
+        for i in range(num_tables):
+            entry = offset + 12 + i * 16
+            tables[data[entry:entry + 4]] = struct.unpack(">I", data[entry + 8:entry + 12])[0]
+        head, hhea = tables.get(b"head"), tables.get(b"hhea")
+        if head is None or hhea is None:
+            return None
+        units_per_em = struct.unpack(">H", data[head + 18:head + 20])[0]
+        _x_min, y_min, _x_max, y_max = struct.unpack(">hhhh", data[head + 36:head + 44])
+        ascent, descent, line_gap = struct.unpack(">hhh", data[hhea + 4:hhea + 10])
+    except struct.error:
+        return None
+    if not units_per_em:
+        return None
+    # Blender falls back to 1/1000 per unit when the box is degenerate.
+    span = (y_max - y_min) if y_max != y_min else 1000
+    return FontMetrics(span / units_per_em, ascent / units_per_em,
+                       descent / units_per_em, line_gap / units_per_em)
+
+
+def metrics(font):
+    """FontMetrics for a Blender font datablock, or None if unreadable.
+
+    Read from the packed copy when there is one, else from the file. Blender's
+    built-in font has neither, so it gets None and is sized as given.
+    """
+    if font is None:
+        return None
+    packed = font.packed_file
+    key = ("packed", font.name) if packed else bpy.path.abspath(font.filepath)
+    if key in _metrics:
+        return _metrics[key]
+    data = None
+    if packed:
+        data = bytes(packed.data)
+    elif font.filepath and font.filepath != "<builtin>":
+        try:
+            with open(key, "rb") as handle:
+                data = handle.read()
+        except OSError:
+            data = None
+    result = _metrics_from_bytes(data) if data else None
+    _metrics[key] = result
+    return result
+
+
 # --- index -------------------------------------------------------------------
 
 def _cache_path():
@@ -239,15 +308,48 @@ def resolve(family, style):
         if wanted in aliases and canonical in styles:
             return match(canonical, True)
 
-    for fallback in ("regular", "normal", "book"):
-        if fallback in styles:
-            return match(fallback, False)
+    # Nearest weight, keeping italic-ness. Falling back to Regular instead
+    # turns an ExtraBold heading into body text; the next weight down keeps it
+    # reading as a heading.
+    want_weight, want_italic = _weight_of(wanted)
+    best = min(styles, key=lambda key: (
+        _weight_of(key)[1] != want_italic,
+        abs(_weight_of(key)[0] - want_weight),
+        # On a tie, heavier for bold requests and lighter for light ones, as
+        # CSS font matching does.
+        -_weight_of(key)[0] if want_weight > 500 else _weight_of(key)[0],
+    ), default=None)
+    return match(best, False) if best else None
 
-    key = next(iter(styles), None)
-    return match(key, False) if key else None
+
+# Weight names to CSS numbers, longest first so "extrabold" wins over "bold".
+_WEIGHTS = (
+    ("hairline", 100), ("thin", 100),
+    ("extralight", 200), ("ultralight", 200),
+    ("semibold", 600), ("demibold", 600), ("demi", 600),
+    ("extrabold", 800), ("ultrabold", 800),
+    ("light", 300), ("medium", 500), ("bold", 700),
+    ("black", 900), ("heavy", 900),
+)
+
+
+def _weight_of(style_key):
+    """'extrabolditalic' -> (800, True); anything unrecognised is Regular."""
+    italic = "italic" in style_key or "oblique" in style_key
+    for name, weight in _WEIGHTS:
+        if name in style_key:
+            return weight, italic
+    digits = "".join(ch for ch in style_key if ch.isdigit())
+    if len(digits) == 3:
+        return int(digits), italic
+    return 400, italic
 
 
 _loaded = {}
+
+# Tried in order when a design's font is not installed at all.
+_FALLBACK_FAMILIES = ("Arial", "Helvetica", "Helvetica Neue", "Segoe UI",
+                      "DejaVu Sans", "Liberation Sans", "Roboto")
 
 
 def _alive(datablock):
@@ -282,11 +384,31 @@ def load(family, style, report=None, on_substitute=None):
     match = resolve(family, style)
     font = None
     note = None
+    stand_in = None
+
+    if match is None:
+        # A common system sans at the right weight is a closer stand-in than
+        # Blender's built-in font -- and, unlike it, has metrics that let the
+        # text be sized to match the design.
+        for fallback in _FALLBACK_FAMILIES:
+            match = resolve(fallback, style)
+            if match is not None:
+                stand_in = fallback
+                break
 
     if match is None:
         note = "%s (not installed)" % wanted
         if report:
             report("Font not installed: '%s' -- using Blender's default." % wanted)
+    elif stand_in is not None:
+        try:
+            font = bpy.data.fonts.load(match.path, check_existing=True)
+        except RuntimeError:
+            font = None
+        note = "%s (not installed, using %s)" % (wanted, stand_in)
+        if report:
+            report("Font not installed: '%s' -- using %s %s instead."
+                   % (wanted, stand_in, match.style))
     else:
         try:
             font = bpy.data.fonts.load(match.path, check_existing=True)
@@ -321,5 +443,6 @@ def load(family, style, report=None, on_substitute=None):
 
 def clear_cache():
     _loaded.clear()
+    _metrics.clear()
     global _index
     _index = None

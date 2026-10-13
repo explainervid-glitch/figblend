@@ -96,6 +96,10 @@ def create_material(name, image_path=None, color=(1.0, 1.0, 1.0, 1.0),
     tree.nodes.clear()
 
     linear = tuple(srgb_to_linear(c) for c in color[:3])
+    # Solid view ignores node trees and paints each material's viewport colour,
+    # which defaults to the same grey for everything -- grey text on a grey card.
+    # Image materials replace this with the picture's average below.
+    mat.diffuse_color = (*linear, 1.0)
 
     output = tree.nodes.new("ShaderNodeOutputMaterial")
     output.location = (600, 0)
@@ -161,6 +165,9 @@ def create_material(name, image_path=None, color=(1.0, 1.0, 1.0, 1.0),
             tree.links.new(tex.outputs["Color"], emission.inputs["Color"])
             tree.links.new(tex.outputs["Color"], principled.inputs["Base Color"])
             tree.links.new(tex.outputs["Alpha"], mix_alpha.inputs[0])
+            average = average_color(tex.image)
+            if average is not None:
+                mat.diffuse_color = (*average, 1.0)
         else:
             _constant_alpha(tree, mix_alpha, color[3])
     else:
@@ -168,6 +175,39 @@ def create_material(name, image_path=None, color=(1.0, 1.0, 1.0, 1.0),
 
     _configure_transparency(mat)
     return mat
+
+
+def average_color(image):
+    """Alpha-weighted mean colour of an image, linear RGB, or None.
+
+    Only the visible pixels count: a button exported with transparent corners
+    should average to its fill, not to the fill mixed with nothing.
+    """
+    try:
+        import numpy
+    except ImportError:
+        return None
+    try:
+        count = len(image.pixels)
+    except (RuntimeError, ReferenceError):
+        return None
+    if not count:
+        return None
+    pixels = numpy.empty(count, dtype=numpy.float32)
+    image.pixels.foreach_get(pixels)
+    pixels = pixels.reshape(-1, image.channels)
+    if image.channels < 3:
+        return None
+    alpha = pixels[:, 3] if image.channels > 3 else numpy.ones(len(pixels), numpy.float32)
+    weight = float(alpha.sum())
+    if weight <= 1e-6:
+        return None
+    mean = (pixels[:, :3] * alpha[:, None]).sum(axis=0) / weight
+    # 8-bit sRGB images report their stored, still-encoded values; float
+    # images are already linear.
+    if image.is_float:
+        return tuple(float(c) for c in mean)
+    return tuple(srgb_to_linear(float(c)) for c in mean)
 
 
 def _constant_alpha(tree, mix_alpha, alpha):
