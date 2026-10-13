@@ -84,6 +84,9 @@ figma.ui.onmessage = async (msg) => {
   }
   if (msg.type === 'ui-ready') {
     uiReady = true;
+    figma.ui.postMessage({
+      type: 'info', version: PLUGIN_VERSION, addonAvailable: updatesConfigured(),
+    });
     announceUpdate();
     return;
   }
@@ -93,13 +96,23 @@ figma.ui.onmessage = async (msg) => {
     figma.openExternal(releaseUrl());
     return;
   }
+  if (msg.type === 'open-addon') {
+    if (updatesConfigured()) figma.openExternal(addonUrl());
+    return;
+  }
+  if (msg.type === 'notify') {
+    // The one place results reach the user outside the panel: Figma's own
+    // toast, so a finished export is visible with the log closed.
+    figma.notify(String(msg.text || '').slice(0, 160), { error: !!msg.error });
+    return;
+  }
   if (msg.type === 'export') {
     try {
       await runExport(msg.pxPerMeter, msg.rasterScale, msg.mode);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      figma.ui.postMessage({ type: 'error', message });
-      figma.notify(`Export failed: ${message}`, { error: true });
+      // The UI logs it and raises the toast, so it is not shown twice.
+      figma.ui.postMessage({ type: 'error', message: `Export failed: ${message}` });
     }
   }
 };
@@ -122,6 +135,14 @@ function updatesConfigured(): boolean {
 
 function releaseUrl(): string {
   return `https://github.com/${GITHUB_REPO}/releases/latest`;
+}
+
+// The Blender add-on built from the same release as this plugin. The two
+// share one version, and a matching pair is the one combination tested
+// together -- so this links that version, not whatever is latest.
+function addonUrl(): string {
+  return `https://github.com/${GITHUB_REPO}/releases/download/`
+    + `v${PLUGIN_VERSION}/figblend-addon-${PLUGIN_VERSION}.zip`;
 }
 
 // 'v1.2.3' -> [1, 2, 3]. A pre-release suffix is ignored: GitHub's "latest

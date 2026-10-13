@@ -58,6 +58,10 @@ Updates: when one is out, a blue version number appears at the top of the
 plugin. Click it, download the new zip, and unzip it **over the same folder**,
 replacing the files. No need to import again.
 
+The gear at the top right opens Settings: the plugin's version, a **Blender
+add-on** button that downloads the add-on of that same version, and the full
+log of exports, sends and warnings.
+
 ### Connect them (first time)
 
 1. In Blender, **save** your `.blend` file — assets are stored next to it.
