@@ -7,7 +7,7 @@ bl_info = {
     "name": "FigBlend",
     "description": "Import UI exported from Figma with editable text, hierarchy and shader controls",
     "author": "",
-    "version": (0, 2, 4),
+    "version": (0, 2, 5),
     "blender": (4, 2, 0),
     "location": "File > Import > FigBlend Bundle (.zip), and View3D > Sidebar > FigBlend",
     "category": "Import-Export",
