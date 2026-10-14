@@ -739,7 +739,7 @@ class FIGBLEND_OT_repair_link(bpy.types.Operator):
     bl_description = (
         "Issue a new Live Link token and accept one pairing request for the "
         "next few minutes. Use this if the Figma plugin reports that it is not "
-        "paired with this Blender"
+        "paired. Anything paired before has to pair again"
     )
 
     @classmethod

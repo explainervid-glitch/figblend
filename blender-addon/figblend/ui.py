@@ -30,6 +30,8 @@ def _live_link_status():
         return "Waiting for Figma  %ds" % bridge.pairing_seconds_left(), "TIME"
     if state == "closed":
         return "Not paired", "LOCKED"
+    if state == "ready":
+        return "Ready, waiting for Figma", "LINKED"
     if last.get("message"):
         return last["message"], "CHECKMARK"
     return "Connected  :%d" % (bridge._port or bridge.PORT), "CHECKMARK"

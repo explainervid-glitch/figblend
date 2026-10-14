@@ -66,11 +66,15 @@ log of exports, sends and warnings.
 
 1. In Blender, **save** your `.blend` file — assets are stored next to it.
 2. In the FigBlend tab, click **Start Live Link**.
-3. Open the FigBlend plugin in Figma within 5 minutes. The pill at the top shows
-   your `.blend` name when connected.
+3. Open the FigBlend plugin in Figma within 5 minutes. The pill at the top turns
+   green with your `.blend` name when connected.
+
+That pairing is remembered. From then on the plugin connects by itself whenever
+Live Link is running, across restarts of Blender and Figma.
 
 If the plugin says it isn't paired, click the refresh icon next to the Live
-Link status in Blender, then reopen the plugin.
+Link status in Blender. The plugin pairs again within a few seconds. This also
+disconnects anything paired before.
 
 ---
 

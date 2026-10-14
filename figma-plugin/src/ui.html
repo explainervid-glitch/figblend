@@ -296,14 +296,15 @@
   let bridge = null;   // the one we send to
 
   // /import needs a token. /pair gives one out only while Blender has a pairing
-  // window open -- the first few minutes after Live Link starts -- so a web page
-  // that loads later cannot get one and cannot push anything into the scene.
-  // Tokens are held per Blender process in clientStorage, which the main thread
+  // window open, so a web page that loads later cannot get one and cannot push
+  // anything into the scene. Blender keeps its token on disk and every Blender
+  // on the machine shares it, so one stored token pairs with all of them, across
+  // restarts of either app. It lives in clientStorage, which the main thread
   // owns; these two helpers are the round trip to it.
   const tokens = {};
   const tokenWaiters = {};
 
-  function tokenKey(info) { return String(info.pid); }
+  function tokenKey() { return 'machine'; }
 
   function loadToken(key) {
     if (key in tokens) return Promise.resolve(tokens[key]);
@@ -347,7 +348,7 @@
       // Unpaired: take the token now if Blender is still offering one, then
       // ping again so this instance reports its real name and asset folder.
       if (!info.paired) {
-        const stored = await loadToken(String(info.pid));
+        const stored = await loadToken(tokenKey());
         let token = stored;
         if (!token && info.pairing_open) token = await pair({ url, pid: info.pid });
         if (token) {
@@ -356,14 +357,14 @@
             info = confirmed;
             info.token = token;
           } else if (info.pairing_open) {
-            // A stored token from a previous Blender run is no use.
+            // The stored token was replaced by a Re-pair in Blender.
             const fresh = await pair({ url, pid: info.pid });
             const retry = fresh ? await ping(url, stop.signal, fresh) : null;
             if (retry && retry.paired) { info = retry; info.token = fresh; }
           }
         }
       } else {
-        info.token = tokens[String(info.pid)] || null;
+        info.token = tokens[tokenKey()] || null;
       }
 
       info.url = url;
@@ -384,17 +385,38 @@
     return info.app === 'blender' ? info : null;
   }
 
-  async function pingBridge() {
-    linkText.textContent = 'Scanning…';
-    const found = (await Promise.all(BRIDGE_PORTS.map(probe))).filter(Boolean);
-    found.sort((a, b) => a.port - b.port);
+  let scanning = false;
 
-    // Stay on the same instance across rescans, so a rescan cannot silently
-    // retarget a different scene mid-session.
-    const previous = bridge && bridge.pid;
-    instances = found;
-    bridge = found.find((i) => i.pid === previous) || found[0] || null;
-    renderLink();
+  async function pingBridge(quiet) {
+    if (scanning) return;
+    scanning = true;
+    if (!quiet) linkText.textContent = 'Scanning…';
+    try {
+      const found = (await Promise.all(BRIDGE_PORTS.map(probe))).filter(Boolean);
+      found.sort((a, b) => a.port - b.port);
+
+      // Stay on the same instance across rescans, so a rescan cannot silently
+      // retarget a different scene mid-session.
+      const previous = bridge && bridge.pid;
+      instances = found;
+      bridge = found.find((i) => i.pid === previous) || found[0] || null;
+      renderLink();
+    } finally {
+      scanning = false;
+    }
+  }
+
+  // Keep looking in the background, so starting Live Link in Blender (or
+  // saving the .blend) connects without touching the plugin. Often while
+  // there is nothing to send to, rarely once there is.
+  const WATCH_WAITING = 3000;
+  const WATCH_CONNECTED = 15000;
+  function watchBridge() {
+    const ready = bridge && bridge.paired && bridge.blend_saved;
+    setTimeout(async () => {
+      if (!working) await pingBridge(true);
+      watchBridge();
+    }, ready ? WATCH_CONNECTED : WATCH_WAITING);
   }
 
   function label(info) {
@@ -562,6 +584,7 @@
   };
   setMode('texvector');
   pingBridge();
+  watchBridge();
 
   const updateBtn = document.getElementById('update');
   const updateText = document.getElementById('updateText');

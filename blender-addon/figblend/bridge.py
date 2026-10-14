@@ -12,8 +12,14 @@ Loopback is not the same as private. Any page in any browser on this machine can
 reach a localhost port, and a Figma plugin's requests carry `Origin: null` --
 indistinguishable from a sandboxed iframe on a hostile site, so there is nothing
 in an origin check worth having. Instead /import needs a token, handed out by
-/pair only while a pairing window is open: the few minutes after the user starts
-Live Link, closed again the moment a client takes it. See `_pair_open`.
+/pair only while a pairing window is open, closed again the moment a client
+takes it. See `_pair_open`.
+
+The token is kept on disk, in Blender's config folder, so pairing happens once:
+after that the plugin's stored token keeps working across Blender and Figma
+restarts, and every Blender on the machine accepts it. The window opens by
+itself only until some client has paired. Re-pair issues a new token, which
+also cuts off whatever held the old one.
 """
 
 import errno
@@ -56,7 +62,9 @@ _last_result = {"state": "idle", "message": ""}
 
 _token = None
 _pair_deadline = 0.0
-_paired = False
+_paired = False        # a client has used the token this session
+_ever_paired = False   # a client has paired with this machine, ever
+_pairing_path = None   # resolved on the main thread; written from the server's
 
 
 # --- paths -------------------------------------------------------------------
@@ -83,26 +91,79 @@ def _pair_open():
     return bool(_token) and not _paired and time.monotonic() < _pair_deadline
 
 
+def _pairing_file():
+    global _pairing_path
+    if _pairing_path is None:
+        folder = bpy.utils.user_resource("CONFIG", path="figblend", create=True)
+        _pairing_path = os.path.join(folder, "pairing.json")
+    return _pairing_path
+
+
+def _load_pairing():
+    """(token, ever_paired) from disk, or (None, False)."""
+    try:
+        with open(_pairing_file(), "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        token = data.get("token")
+        if isinstance(token, str) and len(token) >= 16:
+            return token, bool(data.get("paired"))
+    except (OSError, ValueError, AttributeError):
+        pass
+    return None, False
+
+
+def _save_pairing():
+    try:
+        with open(_pairing_file(), "w", encoding="utf-8") as handle:
+            json.dump({"token": _token, "paired": _ever_paired}, handle)
+    except OSError as err:
+        # Pairing still works for this session; it just will not be remembered.
+        print("[FigBlend] Could not save pairing: %s" % err)
+
+
 def open_pairing(seconds=PAIR_WINDOW):
     """Issue a fresh token and start accepting one pairing request.
 
-    Called when Live Link starts, and again by the Re-pair button -- which is
-    the way out if the plugin ever loses its token, or pairs on a machine where
-    something else got there first.
+    The Re-pair button: the way out if the plugin ever loses its token, or
+    pairs on a machine where something else got there first. Any client
+    holding the old token has to pair again.
     """
-    global _token, _pair_deadline, _paired
+    global _token, _pair_deadline, _paired, _ever_paired
+    _pairing_file()
     _token = secrets.token_urlsafe(24)
     _pair_deadline = time.monotonic() + seconds
     _paired = False
+    _ever_paired = False
+    _save_pairing()
     return _token
 
 
+def _resume_pairing():
+    """On start: reuse the remembered token; open the window only if no client
+    has paired with it yet."""
+    global _token, _pair_deadline, _paired, _ever_paired
+    _token, _ever_paired = _load_pairing()
+    _paired = False
+    if _token is None:
+        open_pairing()
+    elif not _ever_paired:
+        _pair_deadline = time.monotonic() + PAIR_WINDOW
+    else:
+        _pair_deadline = 0.0
+
+
 def pairing_state():
-    """What the sidebar shows: 'open', 'paired' or 'closed'."""
+    """What the sidebar shows: 'open', 'paired', 'ready' or 'closed'.
+
+    'ready' is a known plugin that has not checked in yet this session; it
+    will as soon as Figma is open.
+    """
     if _paired:
         return "paired"
     if _pair_open():
         return "open"
+    if _ever_paired:
+        return "ready"
     return "closed"
 
 
@@ -113,10 +174,17 @@ def pairing_seconds_left():
 
 
 def _authenticated(handler):
+    global _paired, _ever_paired
     supplied = handler.headers.get("X-FigBlend-Token") or ""
     if not _token or not supplied:
         return False
-    return hmac.compare_digest(supplied, _token)
+    if not hmac.compare_digest(supplied, _token):
+        return False
+    _paired = True  # and the window closes: nobody else needs a token now
+    if not _ever_paired:
+        _ever_paired = True
+        _save_pairing()
+    return True
 
 
 # --- HTTP --------------------------------------------------------------------
@@ -268,7 +336,10 @@ class _Handler(BaseHTTPRequestHandler):
             return
         # Closed on the way out: one pairing per window, so a second caller
         # cannot quietly take a token for the same session.
+        global _ever_paired
         _paired = True
+        _ever_paired = True
+        _save_pairing()
         print("[FigBlend] Paired with a client on port %s" % _port)
         self._send(200, {"token": _token, "already_paired": False})
 
@@ -425,7 +496,7 @@ def start(port=None):
             threading.Thread(target=server.serve_forever, daemon=True).start()
         _servers = made
         _port = candidate
-        open_pairing()
+        _resume_pairing()
         if not bpy.app.timers.is_registered(_drain):
             bpy.app.timers.register(_drain, persistent=True)
 
@@ -483,7 +554,7 @@ def stop():
             pass
     _servers = []
     _port = None
-    # The token dies with the server, so a restart always needs a fresh pairing.
+    # Reloaded from disk on the next start.
     _token = None
     _paired = False
     _pair_deadline = 0.0
