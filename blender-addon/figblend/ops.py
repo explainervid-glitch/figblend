@@ -163,6 +163,8 @@ class FIGBLEND_OT_import(bpy.types.Operator, ImportHelper):
             summary += ", %d extruded" % report.extruded
         if report.replaced:
             summary += ", replaced %d previous import(s)" % report.replaced
+        if report.geo_kept:
+            summary += ", kept %d Geo Mesh(es)" % report.geo_kept
         if report.collapsed:
             summary += ", %d empty frame(s) collapsed" % report.collapsed
         if report.bad_bounds:
@@ -486,7 +488,7 @@ class FIGBLEND_OT_make_geo(bpy.types.Operator):
                 continue
             try:
                 made.append(geo.make(obj, group, self.height, self.carry_content, self.density))
-            except ValueError as err:
+            except (ValueError, RuntimeError) as err:
                 skipped.append(obj.name)
                 self.report({"WARNING"}, str(err))
 
@@ -559,7 +561,7 @@ class FIGBLEND_OT_merge_geo(bpy.types.Operator):
         icon = icons[0] if icons else None
         try:
             geo.merge(target, text=text, icon=icon)
-        except ValueError as err:
+        except (ValueError, RuntimeError) as err:
             self.report({"ERROR"}, str(err))
             return {"CANCELLED"}
         for obj in context.selected_objects:

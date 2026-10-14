@@ -48,6 +48,8 @@ class ImportReport:
         self.bad_bounds = 0
         # Collections from an earlier import of the same bundle, replaced.
         self.replaced = 0
+        # Geo Meshes from that earlier import, carried over onto this one.
+        self.geo_kept = 0
         self.empty_collections = 0
         # Shapes whose Figma effects (shadows, blurs) were discarded in favour
         # of real geometry. Tagged so they can be found and relit.
@@ -106,8 +108,9 @@ def import_bundle(filepath, options, report=None):
     # bundle filename, which the plugin derives from the selection -- so a
     # different frame lands in its own collection and is left alone.
     source = os.path.basename(filepath).lower()
+    held = []
     if getattr(options, "replace_existing", True):
-        report.replaced = _remove_previous_import(source)
+        report.replaced, held = _remove_previous_import(source)
 
     name = data.get("document", {}).get("name") or "FigBlend"
     collection = bpy.data.collections.new(name)
@@ -137,6 +140,10 @@ def import_bundle(filepath, options, report=None):
 
     for root in data.get("roots", []):
         build_node(root, None, ctx)
+
+    if held:
+        from . import geo  # geo builds on this module, so not at the top
+        report.geo_kept = geo.reattach(held, collection, report)
 
     report.empty_collections = _prune_empty_collections(collection)
 
@@ -186,12 +193,18 @@ def _remove_previous_import(source):
     lost its last user -- otherwise every re-send leaks a full set of datablocks
     that only a save-and-reload would clear.
 
-    Returns the number of collections removed.
+    Geo Meshes made on it are lifted out first rather than deleted; the caller
+    hands them back to geo.reattach() once the new import is built.
+
+    Returns the number of collections removed, and the held Geo Meshes.
     """
     stale = [c for c in bpy.data.collections
              if c.get("figblend_source") == source]
     if not stale:
-        return 0
+        return 0, []
+
+    from . import geo
+    held = geo.hold(stale)
 
     orphans = []
 
@@ -222,7 +235,7 @@ def _remove_previous_import(source):
              if m.users == 0 and materials.is_ui_material(m)]
     if spent:
         bpy.data.batch_remove(spent)
-    return len(stale)
+    return len(stale), held
 
 
 def _prune_empty_collections(collection):
@@ -304,6 +317,8 @@ def build_group(node, ctx):
 
     backdrop = build_graphic(node, ctx, name=node.get("name", "Group") + " BG")
     if backdrop is not None:
+        # Its own id, so a Geo Mesh made from it finds it again on a re-send.
+        backdrop["figblend_id"] = node.get("id", "") + ":bg"
         backdrop.parent = obj
         backdrop.matrix_parent_inverse = Matrix.Translation(-obj.location)
 

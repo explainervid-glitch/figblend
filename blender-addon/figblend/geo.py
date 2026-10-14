@@ -11,8 +11,9 @@ library .blend set in the add-on preferences. Inputs are matched by name, so
 any group with the same interface (Height, Roundness, Text, Font, ...) works,
 and inputs a group does not have are simply skipped.
 
-Nothing is deleted. The originals are hidden and remembered on the new object,
-so Flat puts them back.
+Nothing is deleted. The originals are hidden and point back at the new object,
+so Flat puts them back. Re-sending the frame from Figma keeps the rebuild and
+fits it to the new import, along with any modifiers added to it since.
 """
 
 import math
@@ -20,14 +21,41 @@ import math
 import bpy
 from mathutils import Matrix, Vector
 
-from . import builder
+from . import builder, materials
 
 DEFAULT_GROUP = "Button Custom"
+GEO_MODIFIER = "FigBlend Geo"
 
-# How a replaced element and its rebuild find each other again.
-SOURCES_KEY = "figblend_geo_sources"   # on the geo object: names it replaced
-ROOT_KEY = "figblend_geo_root"         # on the geo object: the shape it rebuilt
+# How a replaced element and its rebuild find each other again. These hold
+# object pointers rather than names, so renaming either side breaks nothing.
 GEO_KEY = "figblend_geo"               # on the geo object: marker
+ROOT_KEY = "figblend_geo_root"         # on the geo object: the shape it rebuilt
+TEXT_KEY = "figblend_geo_text"         # on the geo object: the text it shows
+ICON_KEY = "figblend_geo_icon"         # on the geo object: the icon it shows
+OWNER_KEY = "figblend_geo_owner"       # on each original: the geo object
+HEIGHT_KEY = "figblend_geo_height"     # on the geo object: Height asked for
+DENSITY_KEY = "figblend_geo_density"   # on the geo object: density asked for
+HIDDEN_RENDER_KEY = "figblend_geo_hidden_render"
+# 0.2.4 kept a list of names instead of OWNER_KEY. Still read, never written.
+LEGACY_SOURCES_KEY = "figblend_geo_sources"
+
+
+def _ref(obj, key):
+    """The object stored under `key`: a pointer, or a name from 0.2.4."""
+    value = obj.get(key)
+    if isinstance(value, str):
+        return bpy.data.objects.get(value)
+    return value if isinstance(value, bpy.types.Object) else None
+
+
+def sources(obj):
+    """The originals a Geo Mesh stands in for."""
+    found = [o for o in bpy.data.objects if o.get(OWNER_KEY) == obj]
+    for name in obj.get(LEGACY_SOURCES_KEY, []):
+        original = bpy.data.objects.get(name)
+        if original is not None and original not in found:
+            found.append(original)
+    return found
 
 
 # --- node group --------------------------------------------------------------
@@ -202,6 +230,13 @@ def _font_of(text_obj):
 
 # --- building ----------------------------------------------------------------
 
+def _frame(root):
+    frame = measure(root)
+    if frame is None or frame["width"] <= 0.0 or frame["height"] <= 0.0:
+        raise ValueError("'%s' has no surface to rebuild." % root.name)
+    return frame
+
+
 def make(root, group, height=0.0, carry_content=True, density=32):
     """Replace `root` with a node-group mesh. Returns the new object.
 
@@ -209,45 +244,74 @@ def make(root, group, height=0.0, carry_content=True, density=32):
     The group's Resolution is per metre, and a UI element is a fraction of a
     metre, so a fixed Resolution leaves a small chip with too few vertices to
     deform. Deriving it per element keeps every rebuild equally wavy.
+
+    On any failure nothing is left behind: the half-built object goes and the
+    originals are exactly as they were.
     """
-    frame = measure(root)
-    if frame is None or frame["width"] <= 0.0 or frame["height"] <= 0.0:
-        raise ValueError("'%s' has no surface to rebuild." % root.name)
+    frame = _frame(root)
+    text, icon, _rest = split_content(root) if carry_content else (None, None, None)
 
-    text, icon, keep = split_content(root) if carry_content else (None, None, _children(root))
+    obj = bpy.data.objects.new(root.name + " Geo", bpy.data.meshes.new(root.name + " Geo"))
+    obj[GEO_KEY] = True
+    # Remembered so a re-send from Figma rebuilds it the same way.
+    obj[HEIGHT_KEY] = float(height)
+    obj[DENSITY_KEY] = int(density)
+    modifier = obj.modifiers.new(GEO_MODIFIER, "NODES")
+    modifier.node_group = group
+    try:
+        _fit(obj, modifier, root, frame, text, icon)
+    except Exception:
+        _dismantle(obj, root)
+        raise
+    return obj
 
+
+def _fit(obj, modifier, root, frame, text, icon):
+    """Shape `obj` to stand in for `root`, carrying `text` and `icon`.
+
+    Used by make() on a new object and again on every re-send, on the object
+    the user may since have animated, so it only touches what it set itself.
+    """
+    originals = [root] + [o for o in (text, icon) if o is not None]
+    # Claimed first, so a failure part-way can find everything to give back.
+    for original in originals:
+        original[OWNER_KEY] = obj
+    obj[ROOT_KEY] = root
+
+    height = obj.get(HEIGHT_KEY, 0.0)
+    density = obj.get(DENSITY_KEY, 32)
     # Thickness: what Build 3D already gave it, else a slab proportional to the
     # element, so a small chip and a large card both read as solid.
     depth = height or root.get("figblend_depth", 0.0) or 0.08 * min(frame["width"], frame["height"])
+
+    for collection in root.users_collection:
+        if collection not in obj.users_collection:
+            collection.objects.link(obj)
+    obj.parent = root.parent
+    obj.matrix_parent_inverse = root.matrix_parent_inverse.copy()
+    obj.matrix_basis = root.matrix_basis.copy()
 
     # A flat quad at the back of the element: the group grows upwards from it,
     # so the rebuilt object occupies the same depth the element did.
     w2, h2 = frame["width"] / 2.0, frame["height"] / 2.0
     cx, cy, z = frame["center"].x, frame["center"].y, frame["back"]
-    mesh = bpy.data.meshes.new(root.name + " Geo")
+    mesh = obj.data
+    mesh.clear_geometry()
     mesh.from_pydata([(cx - w2, cy - h2, z), (cx + w2, cy - h2, z),
                       (cx + w2, cy + h2, z), (cx - w2, cy + h2, z)], [], [(0, 1, 2, 3)])
-    uv = mesh.uv_layers.new(name="UVMap")
+    uv = mesh.uv_layers.get("UVMap") or mesh.uv_layers.new(name="UVMap")
     for i, co in enumerate([(0, 0), (1, 0), (1, 1), (0, 1)]):
         uv.data[i].uv = co
-
-    obj = bpy.data.objects.new(root.name + " Geo", mesh)
-    for collection in root.users_collection:
-        collection.objects.link(obj)
-    obj.parent = root.parent
-    obj.matrix_parent_inverse = root.matrix_parent_inverse.copy()
-    obj.matrix_basis = root.matrix_basis.copy()
 
     # Slots in the group's default order: body, text, cursor, icon.
     body = _first_material(root)
     text_mat = _first_material(text) if text else body
     icon_mat = _first_material(icon) if icon else body
+    mesh.materials.clear()
     for mat in (body, text_mat, text_mat, icon_mat):
         mesh.materials.append(mat)
 
-    modifier = obj.modifiers.new("FigBlend Geo", "NODES")
-    modifier.node_group = group
-    items = _input_items(group)
+    items = _input_items(modifier.node_group)
     put = lambda name, value: set_input(modifier, items, name, value)
 
     half_short = min(frame["width"], frame["height"]) / 2.0
@@ -272,10 +336,13 @@ def make(root, group, height=0.0, carry_content=True, density=32):
     put("Icon Slot", 4)
 
     put("Show Text", False)
+    obj.pop(TEXT_KEY, None)
     if text is not None:
         apply_text(obj, modifier, items, text)
 
     put("Show Icon", False)
+    obj.pop(ICON_KEY, None)
+    _release_icon_collection(obj)
     icon_depth = None
     if icon is not None:
         icon_depth = _prepare_icon(icon)
@@ -283,7 +350,9 @@ def make(root, group, height=0.0, carry_content=True, density=32):
 
     # Children the button does not absorb stay where they are, now hanging off
     # the rebuild so moving it still moves them.
-    for child in keep:
+    for child in _children(root):
+        if child in (text, icon):
+            continue
         world = child.matrix_world.copy()
         child.parent = obj
         child.matrix_world = world
@@ -298,16 +367,17 @@ def make(root, group, height=0.0, carry_content=True, density=32):
     if icon is not None:
         _settle_icon(obj, icon, icon_depth)
 
-    replaced = [root] + [o for o in (text, icon) if o is not None]
-    for original in replaced:
-        original["figblend_geo_hidden_render"] = original.hide_render
+    for original in originals:
         _hide(original, True)
-
-    obj[GEO_KEY] = True
-    obj[ROOT_KEY] = root.name
-    obj[SOURCES_KEY] = [o.name for o in replaced]
     obj["figblend_z_index"] = root.get("figblend_z_index", 0)
-    return obj
+
+
+def geo_modifier(obj):
+    """The modifier Geo Mesh added, whatever its group offers."""
+    modifier = getattr(obj, "modifiers", {}).get(GEO_MODIFIER)
+    if modifier is not None and modifier.type == "NODES" and modifier.node_group is not None:
+        return modifier
+    return find_modifier(obj)
 
 
 def find_modifier(obj):
@@ -457,7 +527,7 @@ def apply_text(obj, modifier, items, text):
         while len(obj.material_slots) < slot:
             obj.data.materials.append(material)
         obj.material_slots[slot - 1].material = material
-    obj["figblend_geo_text"] = text.name
+    obj[TEXT_KEY] = text
 
 
 ICON_COLLECTION_KEY = "figblend_geo_icon_collection"
@@ -502,7 +572,7 @@ def apply_icon(obj, modifier, items, icon):
         while len(obj.material_slots) < slot:
             obj.data.materials.append(material)
         obj.material_slots[slot - 1].material = material
-    obj["figblend_geo_icon"] = icon.name
+    obj[ICON_KEY] = icon
 
 
 HELD_DEPTH_KEY = "figblend_geo_depth"
@@ -535,7 +605,7 @@ def _settle_icon(obj, icon, depth):
     """
     if not depth or icon.type != "MESH":
         return
-    modifier = find_modifier(obj)
+    modifier = geo_modifier(obj)
     items = _input_items(modifier.node_group)
     slot = int(get_input(modifier, items, "Icon Slot", 4) or 4) - 1
     height = get_input(modifier, items, "Height", 0.0) or 0.0
@@ -556,13 +626,16 @@ def _settle_icon(obj, icon, depth):
         obj.update_tag()
 
 
-def _give_back(original):
+def _give_back(original, obj=None):
     """Undo what merging did to an object: show it, restore its thickness."""
     _hide(original, False)
     held = original.get(HELD_DEPTH_KEY)
     if held:
         builder.apply_thickness(original, held)
         del original[HELD_DEPTH_KEY]
+    original.pop(OWNER_KEY, None)
+    if obj is not None and LEGACY_SOURCES_KEY in obj:
+        obj[LEGACY_SOURCES_KEY] = [n for n in obj[LEGACY_SOURCES_KEY] if n != original.name]
 
 
 def _release_icon_collection(obj):
@@ -641,21 +714,22 @@ def merge(obj, text=None, icon=None):
     if icon is not None and "Show Icon" not in items:
         raise ValueError("'%s' has no icon section." % modifier.node_group.name)
 
-    sources = list(obj.get(SOURCES_KEY, []))
+    current = sources(obj)
 
     def swap(key, incoming):
-        previous = bpy.data.objects.get(obj.get(key, ""))
-        if previous is not None and previous is not incoming and previous.name in sources:
-            _give_back(previous)
-            sources.remove(previous.name)
+        previous = _ref(obj, key)
+        if previous is not None and previous != incoming and previous in current:
+            _give_back(previous, obj)
 
     reliefs = {}
     if text is not None:
-        swap("figblend_geo_text", text)
+        swap(TEXT_KEY, text)
+        text[OWNER_KEY] = obj
         apply_text(obj, modifier, items, text)
         reliefs["Text Depth"] = text.get("figblend_depth")
     if icon is not None:
-        swap("figblend_geo_icon", icon)
+        swap(ICON_KEY, icon)
+        icon[OWNER_KEY] = obj
         icon_depth = _prepare_icon(icon)
         apply_icon(obj, modifier, items, icon)
         reliefs["Icon Depth"] = icon_depth
@@ -666,39 +740,54 @@ def merge(obj, text=None, icon=None):
         _settle_icon(obj, icon, reliefs.get("Icon Depth"))
 
     for incoming in (text, icon):
-        if incoming is not None and incoming.name not in sources:
-            incoming["figblend_geo_hidden_render"] = incoming.hide_render
+        if incoming is not None:
             _hide(incoming, True)
-            sources.append(incoming.name)
-    obj[SOURCES_KEY] = sources
     return modifier
 
 
 def _hide(obj, hidden):
-    # The source of an Object Info node still evaluates when hidden this way,
-    # which is what lets a hidden icon keep feeding the button.
-    obj.hide_set(hidden)
+    """Hide an original while a Geo Mesh stands in for it, or show it again.
+
+    Render visibility is remembered and put back as it was. Viewport hiding
+    is per view layer, and an object in an excluded collection has no place
+    in the view layer to hide it in -- it is not drawn there anyway -- so that
+    part is skipped for it rather than failing the whole rebuild.
+    """
     if hidden:
+        if HIDDEN_RENDER_KEY not in obj:
+            obj[HIDDEN_RENDER_KEY] = obj.hide_render
         obj.hide_render = True
-    else:
-        obj.hide_render = bool(obj.get("figblend_geo_hidden_render", False))
-        obj.pop("figblend_geo_hidden_render", None)
+    elif HIDDEN_RENDER_KEY in obj:
+        obj.hide_render = bool(obj.pop(HIDDEN_RENDER_KEY))
+    _hide_in_viewport(obj, hidden)
     for part in obj.children:
         if part.get("figblend_part"):
-            part.hide_set(hidden)
+            _hide_in_viewport(part, hidden)
             part.hide_render = obj.hide_render
+
+
+def _hide_in_viewport(obj, hidden):
+    # The source of an Object Info node still evaluates when hidden this way,
+    # which is what lets a hidden icon keep feeding the button.
+    try:
+        obj.hide_set(hidden)
+    except RuntimeError:
+        pass  # not in this view layer
 
 
 def restore(obj):
     """Undo make(): bring the originals back and remove the rebuild."""
     if not obj.get(GEO_KEY):
         return False
-    root = bpy.data.objects.get(obj.get(ROOT_KEY, ""))
-    for name in obj.get(SOURCES_KEY, []):
-        original = bpy.data.objects.get(name)
-        if original is not None:
-            _give_back(original)
-    for child in [c for c in obj.children]:
+    _dismantle(obj, _ref(obj, ROOT_KEY))
+    return True
+
+
+def _dismantle(obj, root):
+    """Give back everything `obj` stands in for, then delete it."""
+    for original in sources(obj):
+        _give_back(original, obj)
+    for child in list(obj.children):
         world = child.matrix_world.copy()
         child.parent = root
         child.matrix_world = world
@@ -707,4 +796,109 @@ def restore(obj):
     bpy.data.objects.remove(obj)
     if mesh is not None and mesh.users == 0:
         bpy.data.meshes.remove(mesh)
-    return True
+
+
+# --- re-send -----------------------------------------------------------------
+# Re-sending a frame from Figma replaces the previous import wholesale. A Geo
+# Mesh is the user's work on top of it -- often with a Wave modifier and keys
+# -- so instead of going with the import it is lifted out first and fitted to
+# the matching element of the new one, found by its Figma node id.
+
+def _figma_id(obj):
+    if obj is None:
+        return None
+    return obj.get("figblend_id") or None
+
+
+def hold(collections):
+    """Lift Geo Meshes out of imports that are about to be deleted.
+
+    Returns what reattach() needs to put them back. Call before deleting:
+    afterwards the originals, and with them the ids, are gone.
+    """
+    doomed = set()
+    for collection in collections:
+        for c in [collection] + list(collection.children_recursive):
+            doomed.add(c)
+    doomed_objects = {o for c in doomed for o in c.objects}
+
+    held = []
+    for obj in bpy.data.objects:
+        if not obj.get(GEO_KEY):
+            continue
+        root = _ref(obj, ROOT_KEY)
+        if obj not in doomed_objects and root not in doomed_objects:
+            continue
+        owned = sources(obj)
+        text, icon = _ref(obj, TEXT_KEY), _ref(obj, ICON_KEY)
+        held.append({
+            "object": obj,
+            "world": obj.matrix_world.copy(),
+            "root": _figma_id(root),
+            "text": _figma_id(text) if text in owned else None,
+            "icon": _figma_id(icon) if icon in owned else None,
+            "parked": False,
+        })
+        # Names from 0.2.4: the new import reuses them for other objects.
+        obj.pop(LEGACY_SOURCES_KEY, None)
+        for collection in list(obj.users_collection):
+            if collection in doomed:
+                collection.objects.unlink(obj)
+        if not obj.users_collection:
+            bpy.context.scene.collection.objects.link(obj)
+            held[-1]["parked"] = True
+        # The children it adopted were part of the import and go with it.
+    return held
+
+
+def reattach(held, collection, report=None):
+    """Fit each held Geo Mesh to its element in the freshly built import.
+
+    An element that is no longer in the design keeps its mesh where it stood,
+    in the new import's collection, with a warning.
+    """
+    index = {}
+    for obj in collection.all_objects:
+        key = _figma_id(obj)
+        if key and not obj.get(GEO_KEY):
+            index.setdefault(key, obj)
+
+    def warn(message):
+        if report is not None:
+            report.warn(message)
+
+    kept = 0
+    for record in held:
+        obj = record["object"]
+        try:
+            obj.name
+        except ReferenceError:
+            continue
+        stale = {m for m in obj.data.materials if m is not None}
+        root = index.get(record["root"]) if record["root"] else None
+        modifier = geo_modifier(obj)
+        fitted = False
+        if root is not None and modifier is not None:
+            try:
+                _fit(obj, modifier, root, _frame(root),
+                     index.get(record["text"]) if record["text"] else None,
+                     index.get(record["icon"]) if record["icon"] else None)
+                fitted = True
+            except Exception as err:
+                for original in sources(obj):
+                    _give_back(original, obj)
+                warn("Could not refit '%s': %s" % (obj.name, err))
+        elif root is None:
+            warn("'%s' kept, but its element is no longer in the design" % obj.name)
+        if not fitted:
+            obj.matrix_world = record["world"]
+            if collection not in obj.users_collection:
+                collection.objects.link(obj)
+        if record["parked"]:
+            bpy.context.scene.collection.objects.unlink(obj)
+        kept += 1
+
+        spent = [m for m in stale if m.users == 0 and materials.is_ui_material(m)]
+        if spent:
+            bpy.data.batch_remove(spent)
+    return kept

@@ -337,6 +337,8 @@ def _drain():
             summary = "%s %d objects from %s" % (
                 "Updated" if report.replaced else "Imported",
                 report.objects, os.path.basename(path))
+            if report.geo_kept:
+                summary += ", kept %d Geo Mesh(es)" % report.geo_kept
             if report.font_notes:
                 summary += " (%d font issue(s))" % len(report.font_notes)
             _last_result = {"state": "ok", "message": summary,
