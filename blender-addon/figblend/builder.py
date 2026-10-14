@@ -842,6 +842,43 @@ def clear_thickness(obj):
         del obj["figblend_base_z"]
 
 
+# --- thickness controls ------------------------------------------------------
+# What the Thickness field and the viewport drag act on. A Geo Mesh is thick
+# by its node group's Height rather than by extrusion, so it is handed over.
+
+def can_thicken(obj):
+    return obj is not None and (obj.get("figblend_geo") or obj.type in CURVE_TYPES | {"MESH"})
+
+
+def thickness_roots(objects):
+    """The objects whose thickness to set: an SVG part stands for its shape."""
+    roots = []
+    for obj in objects:
+        if obj.get("figblend_part") and obj.parent is not None:
+            obj = obj.parent
+        if can_thicken(obj) and obj not in roots:
+            roots.append(obj)
+    return roots
+
+
+def depth_of(obj):
+    """Current thickness of an element or Geo Mesh; 0 when flat."""
+    if obj.get("figblend_geo"):
+        from . import geo
+        return geo.height_of(obj)
+    return obj.get("figblend_depth", 0.0)
+
+
+def set_depth(obj, depth):
+    if obj.get("figblend_geo"):
+        from . import geo
+        geo.set_height(obj, depth)
+    elif depth > 0.0:
+        apply_thickness(obj, depth)
+    else:
+        clear_thickness(obj)
+
+
 # --- stacking ----------------------------------------------------------------
 
 def _node_box(node):

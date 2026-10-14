@@ -6,8 +6,35 @@ it has to survive opening a different .blend -- which is exactly when it fires.
 
 import bpy
 
+from . import builder
+
+
+# The Thickness field stores nothing itself: it reads the active object and
+# writes every selected one, so it always shows what is really there.
+
+def _get_thickness(self):
+    obj = bpy.context.view_layer.objects.active
+    if obj is not None and obj.get("figblend_part") and obj.parent is not None:
+        obj = obj.parent
+    return builder.depth_of(obj) if builder.can_thicken(obj) else 0.0
+
+
+def _set_thickness(self, value):
+    for obj in builder.thickness_roots(bpy.context.selected_objects):
+        builder.set_depth(obj, value)
+
 
 class FigBlendSettings(bpy.types.PropertyGroup):
+    thickness: bpy.props.FloatProperty(
+        name="Thickness",
+        description=(
+            "Thickness of the selected elements, grown backwards from their "
+            "front face. Shows the active one's; setting it changes them all. "
+            "0 makes them flat. In the viewport, Alt+T drags it"
+        ),
+        min=0.0, soft_max=0.01, step=0.01, precision=5, unit="LENGTH",
+        get=_get_thickness, set=_set_thickness,
+    )
     shader_mode: bpy.props.FloatProperty(
         name="Shader Mode",
         description=(

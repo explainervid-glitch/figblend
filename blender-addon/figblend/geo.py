@@ -389,6 +389,25 @@ def find_modifier(obj):
     return None
 
 
+def height_of(obj):
+    modifier = geo_modifier(obj)
+    if modifier is None:
+        return 0.0
+    return get_input(modifier, _input_items(modifier.node_group), "Height", 0.0) or 0.0
+
+
+def set_height(obj, depth):
+    """Change a Geo Mesh's thickness. Text and icon keep their own relief and
+    ride on the face, so only the body changes. Kept through a re-send."""
+    modifier = geo_modifier(obj)
+    if modifier is None:
+        return
+    depth = max(depth, 1e-5)  # a body of zero height has no top to carry text
+    if set_input(modifier, _input_items(modifier.node_group), "Height", depth):
+        obj[HEIGHT_KEY] = float(depth)
+        obj.update_tag()
+
+
 def get_input(modifier, items, name, fallback=None):
     item = items.get(name)
     if item is None:

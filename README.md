@@ -84,6 +84,9 @@ Link status in Blender, then reopen the plugin.
 No Live Link? Click **Export** instead, then **File → Import → FigBlend Bundle**
 in Blender.
 
+Thickness: select elements, then edit **Thickness** in the FigBlend tab, or press
+`Alt+T` in the viewport and drag (also in the right-click menu).
+
 | Mode | Result |
 |---|---|
 | Vector | Curves and editable text. Gradients fall back to images |

@@ -8,7 +8,7 @@ and the detail lives in the tooltips.
 
 import bpy
 
-from . import bridge, ops, props, updater
+from . import bridge, builder, ops, props, updater
 
 
 def _live_link_status():
@@ -120,6 +120,10 @@ class FIGBLEND_PT_selection(bpy.types.Panel):
                      text="3D", icon="MESH_CUBE")
         row.operator(ops.FIGBLEND_OT_flatten_geometry.bl_idname,
                      text="Flat", icon="MESH_PLANE")
+
+        row = _labeled_row(layout, "Thickness")
+        row.enabled = bool(builder.thickness_roots(context.selected_objects))
+        row.prop(settings, "thickness", text="")
 
         row = _labeled_row(layout, "Deformable")
         # No icons: a sidebar at its usual width cuts "Geo Mesh" short otherwise.

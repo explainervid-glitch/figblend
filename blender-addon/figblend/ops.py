@@ -430,6 +430,117 @@ class FIGBLEND_OT_flatten_geometry(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class FIGBLEND_OT_drag_thickness(bpy.types.Operator):
+    bl_idname = "figblend.drag_thickness"
+    bl_label = "Thickness"
+    bl_description = (
+        "Drag left and right in the viewport to set the thickness of the "
+        "selected elements. Shift for fine steps, Ctrl to snap to 0.1 mm, "
+        "or type a value in millimetres. Click or Enter to keep it"
+    )
+    bl_options = {"REGISTER", "UNDO", "GRAB_CURSOR_X", "BLOCKING"}
+
+    thickness: bpy.props.FloatProperty(
+        name="Thickness",
+        description="Thickness of every selected element, grown backwards from its front face",
+        default=0.0005, min=0.0, soft_max=0.01, step=0.01, precision=5, unit="LENGTH",
+    )
+
+    # Screen pixels to double or halve the thickness. Doubling rather than
+    # adding keeps the drag equally easy at 0.1 mm and at 10 mm.
+    PIXELS_PER_DOUBLING = 150.0
+    SNAP = 0.0001
+
+    @classmethod
+    def poll(cls, context):
+        if context.mode != "OBJECT":
+            cls.poll_message_set("Switch to Object Mode")
+            return False
+        if not builder.thickness_roots(context.selected_objects):
+            cls.poll_message_set("Select imported shapes, text, images or Geo Meshes")
+            return False
+        return True
+
+    def execute(self, context):
+        roots = builder.thickness_roots(context.selected_objects)
+        for obj in roots:
+            builder.set_depth(obj, self.thickness)
+        self.report({"INFO"}, "Thickness %s on %d element(s)"
+                    % (self._text(self.thickness), len(roots)))
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        self._roots = builder.thickness_roots(context.selected_objects)
+        self._before = [(obj, builder.depth_of(obj)) for obj in self._roots]
+        active = context.view_layer.objects.active
+        active = active.parent if active and active.get("figblend_part") and active.parent else active
+        start = builder.depth_of(active) if active in self._roots else self._before[0][1]
+        if start <= 0.0:
+            # Nothing to scale from: begin at the Live Link thickness.
+            prefs = props.preferences()
+            start = prefs.live_geometry_depth if prefs else 0.0005
+        self._start = start
+        self._x = event.mouse_x
+        self._typed = ""
+        self._apply(context, start)
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context, event):
+        if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
+            for obj, depth in self._before:
+                builder.set_depth(obj, depth)
+            self._finish(context)
+            return {"CANCELLED"}
+        if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"} and event.value == "PRESS":
+            self._finish(context)
+            return {"FINISHED"}
+
+        if event.value == "PRESS" and event.ascii and event.ascii in "0123456789.,":
+            self._typed += "." if event.ascii == "," else event.ascii
+        elif event.type == "BACK_SPACE" and event.value == "PRESS":
+            self._typed = self._typed[:-1]
+        elif event.type not in {"MOUSEMOVE", "LEFT_SHIFT", "RIGHT_SHIFT",
+                                "LEFT_CTRL", "RIGHT_CTRL"}:
+            return {"RUNNING_MODAL"}
+
+        if self._typed:
+            try:
+                value = float(self._typed) / 1000.0  # typed in millimetres
+            except ValueError:
+                return {"RUNNING_MODAL"}
+        else:
+            pixels = event.mouse_x - self._x
+            if event.shift:
+                pixels /= 10.0
+            value = self._start * 2.0 ** (pixels / self.PIXELS_PER_DOUBLING)
+            if event.ctrl:
+                value = max(self.SNAP, round(value / self.SNAP) * self.SNAP)
+        self._apply(context, value)
+        return {"RUNNING_MODAL"}
+
+    def _apply(self, context, value):
+        self.thickness = value
+        for obj in self._roots:
+            builder.set_depth(obj, value)
+        if context.area:
+            context.area.header_text_set(
+                "Thickness  %s%s   ·   %d element(s)"
+                % (self._text(value), "  (typed, mm)" if self._typed else "", len(self._roots)))
+        context.workspace.status_text_set(
+            "Click / Enter: keep    Right-click / Esc: cancel    "
+            "Shift: fine    Ctrl: snap 0.1 mm    Type: value in mm")
+
+    def _finish(self, context):
+        if context.area:
+            context.area.header_text_set(None)
+        context.workspace.status_text_set(None)
+
+    @staticmethod
+    def _text(value):
+        return bpy.utils.units.to_string("METRIC", "LENGTH", value, precision=3)
+
+
 class FIGBLEND_OT_make_geo(bpy.types.Operator):
     bl_idname = "figblend.make_geo"
     bl_label = "Geo Mesh"
@@ -703,6 +814,7 @@ classes = (
     FIGBLEND_OT_set_render_method,
     FIGBLEND_OT_build_geometry,
     FIGBLEND_OT_flatten_geometry,
+    FIGBLEND_OT_drag_thickness,
     FIGBLEND_OT_make_geo,
     FIGBLEND_OT_merge_geo,
     FIGBLEND_OT_select_relight,

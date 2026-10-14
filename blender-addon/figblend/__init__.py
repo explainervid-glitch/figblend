@@ -39,7 +39,17 @@ def menu_func_import(self, context):
                          text="FigBlend Bundle (.zip)")
 
 
+def menu_func_context(self, context):
+    if context.mode == "OBJECT":
+        self.layout.separator()
+        self.layout.operator(ops.FIGBLEND_OT_drag_thickness.bl_idname,
+                             text="FigBlend Thickness", icon="MOD_SOLIDIFY")
+
+
 classes = props.classes + ops.classes + ui.classes
+
+# Alt+T in Object Mode: T for thickness, and free in Blender's default keymap.
+_keymaps = []
 
 
 def register():
@@ -47,6 +57,13 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.Scene.figblend = bpy.props.PointerProperty(type=props.FigBlendSettings)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
+    bpy.types.VIEW3D_MT_object_context_menu.append(menu_func_context)
+    keyconfig = bpy.context.window_manager.keyconfigs.addon
+    if keyconfig is not None:  # None in background mode
+        keymap = keyconfig.keymaps.new(name="Object Mode", space_type="EMPTY")
+        item = keymap.keymap_items.new(ops.FIGBLEND_OT_drag_thickness.bl_idname,
+                                       "T", "PRESS", alt=True)
+        _keymaps.append((keymap, item))
     bridge.register_handlers()
     updater.register()
 
@@ -57,6 +74,10 @@ def unregister():
     # disabled, and the next enable could not rebind it.
     bridge.unregister_handlers()
     bridge.stop()
+    for keymap, item in _keymaps:
+        keymap.keymap_items.remove(item)
+    _keymaps.clear()
+    bpy.types.VIEW3D_MT_object_context_menu.remove(menu_func_context)
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
