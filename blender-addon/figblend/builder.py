@@ -131,7 +131,9 @@ def import_bundle(filepath, options, report=None):
         "scale": scale,
         "z_step": z_step,
         "build_depth": depth if building else 0.0,
-        "stack": plan_stack(data, depth, gap) if building else None,
+        "stack": (plan_stack(data, depth, gap, _scene_layers(
+                      1.0 / scale, {r.get("frame") for r in data.get("roots", []) if r.get("frame")}))
+                  if building else None),
         "asset_dir": asset_dir,
         "collection": collection,
         "options": options,
@@ -139,6 +141,7 @@ def import_bundle(filepath, options, report=None):
     }
 
     for root in data.get("roots", []):
+        ctx["frame"] = root.get("frame", "")
         build_node(root, None, ctx)
 
     if held:
@@ -272,6 +275,9 @@ def _build_node_inner(node, parent, ctx):
         obj["figblend_id"] = node.get("id", "")
         obj["figblend_type"] = kind
         obj["figblend_z_index"] = node.get("z_index", 0)
+        # The Figma frame it came from, so a later send of part of that frame
+        # can rest on it. See _scene_layers.
+        obj["figblend_frame"] = ctx.get("frame", "")
         ctx["report"].objects += 1
 
         if node.get("effects_dropped"):
@@ -903,7 +909,36 @@ def _has_surface(node):
                 or node.get("mask") or node.get("text"))
 
 
-def plan_stack(data, depth, gap):
+def _scene_layers(px_per_meter, frames):
+    """(box in Figma px, front z, z_index) of every visible imported layer
+    already in the scene.
+
+    A few elements re-sent on their own are planned against these too, so they
+    rest on the backdrop they were sitting on in the earlier import instead of
+    sinking into it. Only meaningful because a part of a frame is exported in
+    that frame's coordinates and stacking order -- see the plugin's topFrame.
+    """
+    layers = []
+    if not frames:
+        return layers
+    bpy.context.view_layer.update()  # matrix_world of anything just built
+    for obj in bpy.context.view_layer.objects:
+        # Only the same Figma frames: every frame is placed from the world
+        # origin, so other frames overlap it in space without being under it.
+        if obj.get("figblend_frame") not in frames or obj.get("figblend_part"):
+            continue
+        if not obj.visible_get():
+            continue
+        box = object_xy_box(obj)
+        if box is None:
+            continue
+        x, y, w, h = box
+        layers.append(((x * px_per_meter, -y * px_per_meter, w * px_per_meter, h * px_per_meter),
+                       obj.matrix_world.translation.z, obj.get("figblend_z_index", 0)))
+    return layers
+
+
+def plan_stack(data, depth, gap, scene_layers=()):
     """Decide each node's front-face Z by resting it on what it covers.
 
     Layer order alone is not enough. A document can have fifty layers that never
@@ -936,6 +971,12 @@ def plan_stack(data, depth, gap):
         support = 0.0
         for other_box, other_front in placed:
             if other_front > support and _overlaps_xy(box, other_box):
+                support = other_front
+        # Layers already in the scene hold it up only if they were below it in
+        # Figma -- the same element imported earlier in another mode is not.
+        z_index = node.get("z_index", 0)
+        for other_box, other_front, other_z in scene_layers:
+            if other_z < z_index and other_front > support and _overlaps_xy(box, other_box):
                 support = other_front
         back = support + gap if support > 0.0 else 0.0
         front = back + depth

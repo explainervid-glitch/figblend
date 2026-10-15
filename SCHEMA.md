@@ -69,6 +69,18 @@ Note that `z_index` counts *every* node, not tree depth, so total depth grows
 with the size of the design — a 500-layer frame spans 500 × `z_step`. That is
 why the step is small by default.
 
+### Sending part of a frame
+
+Positions are measured from the top-left of the **top frame** each selected node
+belongs to (the frame sitting directly on the page or in a section), not from
+the selection itself. Likewise a nested node's `z_index` starts at the place it
+would have had if its whole top frame were sent. So an element sent on its own
+lands exactly where it sat in an earlier send of the full frame.
+
+Each root carries `frame`, the id of that top frame. With Build 3D on, the
+importer lets layers already in the scene from the same frame hold up the new
+ones, so a re-sent element rests on its backdrop rather than sinking into it.
+
 ## `bundle.json`
 
 ```jsonc
@@ -86,7 +98,7 @@ why the step is small by default.
     "image_texture": false,     // everything rasterized, text included
     "mode": "vector"            // vector | texvector | image
   },
-  "roots": [ /* Node */ ]
+  "roots": [ /* Node, plus "frame": "1:2" -- id of its top frame */ ]
 }
 ```
 

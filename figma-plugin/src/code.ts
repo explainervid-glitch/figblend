@@ -218,12 +218,14 @@ async function runExport(
     return;
   }
 
-  // Everything is positioned relative to the top-left of the whole selection,
-  // so a multi-frame export keeps its relative layout.
+  // Everything is positioned relative to the top-left of the frames the
+  // selection lives in, not of the selection itself. A multi-frame export keeps
+  // its relative layout, and a few elements sent on their own land exactly
+  // where they sat when their whole frame was sent.
   let originX = Infinity;
   let originY = Infinity;
   for (const node of selection) {
-    const box = boundsOf(node);
+    const box = boundsOf(topFrame(node));
     if (!box) continue;
     originX = Math.min(originX, box.x);
     originY = Math.min(originY, box.y);
@@ -259,8 +261,19 @@ async function runExport(
       message: `Walking ${selection[i].name}…`,
       value: i / selection.length,
     });
+    // A part of a frame starts at its place in the frame's stacking order, so
+    // it lands in front of the backdrop and behind what covers it -- not at the
+    // bottom, sharing a depth with the frame's own background.
+    if (topFrame(selection[i]).id !== selection[i].id) {
+      ctx.zCounter = stackIndex(selection[i]);
+    }
     const node = await walk(selection[i], ctx);
-    if (node) roots.push(node);
+    if (node) {
+      // Which top-level frame this came from, so Blender can line a part sent
+      // on its own up with an earlier send of the whole frame.
+      node.frame = topFrame(selection[i]).id;
+      roots.push(node);
+    }
   }
 
   const bundle = {
@@ -965,6 +978,40 @@ function isBackdropVectorEligible(node: SceneNode): boolean {
 
 function boundsOf(node: SceneNode) {
   return 'absoluteBoundingBox' in node ? node.absoluteBoundingBox : null;
+}
+
+// The outermost frame a node belongs to: the one sitting directly on the page,
+// or in a section, which is only a way of arranging frames on the page.
+function topFrame(node: SceneNode): SceneNode {
+  let current: SceneNode = node;
+  while (current.parent && current.parent.type !== 'PAGE'
+         && current.parent.type !== 'SECTION' && current.parent.type !== 'DOCUMENT') {
+    current = current.parent as SceneNode;
+  }
+  return current;
+}
+
+// The z_index walk() would give `target` if its whole top frame were sent:
+// nodes are counted in the same order and by the same rules -- hidden and
+// zero-size ones skipped, a masked group counted once with its contents.
+function stackIndex(target: SceneNode): number {
+  let count = 0;
+  let found = false;
+  const visit = (node: SceneNode, counting: boolean): void => {
+    if (found) return;
+    if (node.id === target.id) { found = true; return; }
+    if (!node.visible) return;
+    const width = 'width' in node ? node.width : 0;
+    const height = 'height' in node ? node.height : 0;
+    if (width === 0 || height === 0) return;
+    if (counting) count++;
+    if (CONTAINER_TYPES.indexOf(node.type) === -1 || !('children' in node)) return;
+    const children = (node as ChildrenMixin).children as readonly SceneNode[];
+    const masked = children.some((c) => c.visible && 'isMask' in c && c.isMask === true);
+    for (const child of children) visit(child, counting && !masked);
+  };
+  visit(topFrame(target), true);
+  return found ? count : 0;
 }
 
 function sanitizeId(id: string): string {
