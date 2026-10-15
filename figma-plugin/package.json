@@ -1,6 +1,6 @@
 {
   "name": "figblend",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "description": "Export Figma UI to a bundle the Blender addon can import.",
   "scripts": {

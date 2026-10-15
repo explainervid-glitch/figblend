@@ -10,7 +10,7 @@
 
 const SCHEMA_VERSION = '1.1.0';
 // Both stamped by `npm run bump` -- edit them there, not here.
-const PLUGIN_VERSION = '0.2.5';
+const PLUGIN_VERSION = '0.2.6';
 // Typed as string on purpose. Left to inference, a stamped repository name gets
 // its own literal type, and comparing that with the placeholder below is a
 // compile error -- so the plugin would build only while still unconfigured.
